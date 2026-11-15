@@ -5,7 +5,7 @@
 #   bash scripts/build_app.sh                         # 构建并打包 dist/WeChat AI.app
 #   SWIFT_DISABLE_SANDBOX=1 bash scripts/build_app.sh # 受限沙箱（CI / Agent）关闭 SwiftPM sandbox
 #
-# 前置：可用的 swift 工具链（Xcode 27 / CLT）与 app/。bridge/onebot、Frida Gadget 或
+# 前置：可用的 swift 工具链（Swift 6.1+ / CLT）与 app/。bridge/onebot、Frida Gadget 或
 # hook/versions 缺失时只打印 WARNING，仍会产出 App（对应运行期功能可能不可用）。
 set -euo pipefail
 
@@ -14,7 +14,9 @@ APP_NAME="WeChat AI"
 BUNDLE_ID="com.gusionw.wechatai"
 DIST_DIR="$ROOT_DIR/dist"
 BUNDLE="$DIST_DIR/$APP_NAME.app"
-SCRATCH="${BUILD_SCRATCH:-$ROOT_DIR/app/.build-release}"
+CONFIGURATION="${BUILD_CONFIGURATION:-release}"
+case "$CONFIGURATION" in debug|release) ;; *) echo "invalid BUILD_CONFIGURATION" >&2; exit 1 ;; esac
+SCRATCH="${BUILD_SCRATCH:-$ROOT_DIR/app/.build-$CONFIGURATION}"
 # 默认目标微信版本。仓库里必须带对应的 Hook 版本 JSON，否则 App 对当前微信
 # 会显示「Hook 版本文件未就绪」，无法安装/启动 Hook（发布包尤其不能缺）。
 DEFAULT_HOOK_VERSION="4.2.0.17"
@@ -34,12 +36,18 @@ if [ "${SWIFT_DISABLE_SANDBOX:-0}" = "1" ]; then
   say "SwiftPM sandbox disabled (SWIFT_DISABLE_SANDBOX=1)"
 fi
 
-say "compiling SwiftUI app (release)"
+say "compiling SwiftUI app ($CONFIGURATION)"
 cd "$ROOT_DIR/app"
-swift build -c release --scratch-path "$SCRATCH" $SWIFT_EXTRA_FLAGS
-BIN_DIR="$(swift build -c release --scratch-path "$SCRATCH" --show-bin-path $SWIFT_EXTRA_FLAGS)"
+swift build -c "$CONFIGURATION" --scratch-path "$SCRATCH" $SWIFT_EXTRA_FLAGS
+BIN_DIR="$(swift build -c "$CONFIGURATION" --scratch-path "$SCRATCH" --show-bin-path $SWIFT_EXTRA_FLAGS)"
 EXECUTABLE="$BIN_DIR/WeChatAI"
 [ -x "$EXECUTABLE" ] || fail "executable not produced: $EXECUTABLE"
+HOST_ARCH="$(uname -m)"
+/usr/bin/lipo "$EXECUTABLE" -verify_arch "$HOST_ARCH" || fail "App 架构与本机不匹配"
+if [ -f "$ROOT_DIR/bridge/onebot" ]; then
+  /usr/bin/lipo "$ROOT_DIR/bridge/onebot" -verify_arch "$HOST_ARCH" || fail "bridge 架构与 App 不匹配；先重建 bridge"
+fi
+
 
 say "assembling $APP_NAME.app"
 rm -rf "$BUNDLE"
@@ -88,6 +96,12 @@ if [ -f "$ROOT_DIR/hook/script.js" ]; then
   cp "$ROOT_DIR/hook/script.js" "$RES/bridge/script.js"
 elif [ -f "$ROOT_DIR/bridge/script.js" ]; then
   cp "$ROOT_DIR/bridge/script.js" "$RES/bridge/script.js"
+fi
+cp "$ROOT_DIR/hook/script-x86_64.js" "$RES/bridge/script-x86_64.js"
+if [[ "$HOST_ARCH" == "x86_64" ]]; then
+  [ -f "$ROOT_DIR/bridge/libwechat-x64.dylib" ] || fail "缺少 x64 completion helper；先运行 scripts/build_bridge.sh"
+  cp "$ROOT_DIR/bridge/libwechat-x64.dylib" "$RES/bridge/libwechat-x64.dylib"
+  /usr/bin/codesign -f -s - --timestamp=none "$RES/bridge/libwechat-x64.dylib"
 fi
 if [ ! -f "$DEFAULT_HOOK_JSON" ]; then
   say "WARNING: 缺少默认微信 ${DEFAULT_HOOK_VERSION} 的 Hook 版本 JSON：hook/versions/4_2_0_17_mac.json"

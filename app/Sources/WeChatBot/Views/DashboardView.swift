@@ -26,7 +26,7 @@ struct DashboardView: View {
                     systemImage: store.isBotRunning ? "stop.fill" : "play.fill"
                 )
             }
-            .buttonStyle(.glassProminent)
+            .compatibleProminentButton()
             .tint(store.isBotRunning ? Theme.danger : Theme.accent)
             .controlSize(.regular)
             .disabled(store.isSwitchingAccount || store.isBotTransitioning)
@@ -46,7 +46,7 @@ struct DashboardView: View {
                     Button(L("打开日志")) {
                         store.sidebarSelection = .logs
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
                 }
             }
@@ -84,7 +84,7 @@ struct DashboardView: View {
                     Button(L("知道了")) {
                         store.dismissAccountSwitchNotice()
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
                 }
             }
@@ -122,11 +122,11 @@ struct DashboardView: View {
                 VStack(spacing: 9) {
                     HStack(spacing: 9) {
                         QuickActionButton(
-                            title: store.hookStatus.gadgetInstalled ? "Hook 已安装" : "安装 Hook",
+                            title: store.hookStatus.usesLocalAttach ? "直接附加已就绪" : (store.hookStatus.gadgetInstalled ? "Hook 已安装" : "安装 Hook"),
                             symbol: "wrench.and.screwdriver.fill",
                             tint: Theme.warning,
                             isBusy: isInstallingHook || store.isHookOperationInFlight,
-                            isEnabled: !store.hookStatus.gadgetInstalled && !store.isHookOperationInFlight
+                            isEnabled: !store.hookStatus.hookAvailable && !store.isHookOperationInFlight
                         ) {
                             showHookConfirm = true
                         }
@@ -238,7 +238,7 @@ struct DashboardView: View {
     }
 
     private var hookStatusText: String? {
-        guard store.hookStatus.gadgetInstalled else { return nil }
+        guard store.hookStatus.hookAvailable else { return nil }
         if !store.hookStatus.wechatVersion.isEmpty, !store.hookStatus.wechatVersionKnown {
             return "版本未适配"
         }
@@ -274,7 +274,7 @@ struct DashboardView: View {
 
     private var hookDetail: String {
         var parts: [String] = []
-        parts.append(L(store.hookStatus.gadgetInstalled ? "Gadget 已安装" : "Gadget 未安装"))
+        parts.append(L(store.hookStatus.usesLocalAttach ? "本机直接附加" : (store.hookStatus.gadgetInstalled ? "Gadget 已安装" : "Gadget 未安装")))
         if store.hookStatus.bridgeRunning { parts.append(L("bridge 运行中")) }
         if store.hookStatus.gatewayConnected { parts.append(L("网关已连接")) }
         if store.hookStatus.r3Active {

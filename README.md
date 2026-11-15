@@ -43,6 +43,8 @@ memory, voice and image understanding.
 
 ### 兼容性
 
+源码新增 macOS 15 / Intel x86_64 实验适配，针对微信 4.1.15.35（270115）；已验证 App 启动、真实消息接收及原生文本发送。见 [Intel 适配记录](docs/intel-4.1.15.md)。已发布 Apple Silicon 包的要求保持不变。
+
 | 微信版本 | 支持 |
 | --- | --- |
 | 4.2.0.17 (270353) | ✅ 注入 / 重签、地址表、入站（群聊文本 / appmsg / 自身消息）、通讯录读取、R3 文本发送；语音发送 / 图片下载 / 群聊 @ 未复测 |
@@ -188,6 +190,8 @@ OneBot 桥接为上游项目的 GPL-3.0 衍生，改动清单见 [`bridge/NOTICE
   See [`docs/updates.md`](docs/updates.md).
 
 ### Compatibility
+
+Source builds now include an experimental macOS 15 / Intel x86_64 path for WeChat 4.1.15.35 (270115). App launch, live receive and native text sending are verified. See [the Intel adaptation record](docs/intel-4.1.15.md). Published Apple Silicon releases retain their existing requirements.
 
 | WeChat version | Support |
 | --- | --- |

@@ -1,5 +1,17 @@
 import Foundation
 
+enum AIAPIStyle: String, Codable, CaseIterable, Identifiable {
+    case chatCompletions
+    case responses
+    var id: String { rawValue }
+    var label: String { self == .responses ? "Responses（OpenAI / Codex）" : "Chat Completions（兼容）" }
+}
+
+enum AIReasoningEffort: String, Codable, CaseIterable, Identifiable {
+    case none, minimal, low, medium, high, xhigh, max
+    var id: String { rawValue }
+}
+
 /// 通道温度的范围、步长与格式化。请求侧由 `AIProvider.requestTemperature`
 /// clamp 后交给 `AIClient.requestBody`；编辑器与列表共用同一组常量。
 enum ModelTemperature {

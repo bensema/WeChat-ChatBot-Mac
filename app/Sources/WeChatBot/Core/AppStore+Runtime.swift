@@ -414,8 +414,8 @@ final class RuntimeCoordinator {
             store.settings.bot.defaultProviderID = store.settings.ai.defaultProviderID
             changed = true
         }
-        if store.settings.bot.defaultPersonaID == nil || !personaIDs.contains(store.settings.bot.defaultPersonaID ?? "") {
-            store.settings.bot.defaultPersonaID = store.personas.first(where: \.isDefault)?.id ?? store.personas.first?.id
+        if let id = store.settings.bot.defaultPersonaID, !personaIDs.contains(id) {
+            store.settings.bot.defaultPersonaID = nil
             changed = true
         }
         let contextLimit = ChatEngine.shortTermMemoryLimit
@@ -4708,6 +4708,34 @@ final class RuntimeCoordinator {
 
     // MARK: Manual actions
 
+    /// Starts transport only: no AI credential check, event listener or auto replies.
+    func startDiagnosticBridge() async throws {
+        await bootstrapIfNeeded()
+        guard !store.isBotRunning, !store.isBotTransitioning, !store.isSwitchingAccount else {
+            throw OneBotError.sendFailed("请先停止机器人，再单独启动 bridge。")
+        }
+        store.isBotTransitioning = true
+        defer { store.isBotTransitioning = false }
+        if store.settings.onebot.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            store.settings.onebot.token = Self.randomToken()
+        }
+        _ = try OneBotDiagnostics.configuration(store.settings.onebot)
+        store.persist()
+        let identity = bridgeIdentity()
+        try await hookManager.startBridge(host: store.settings.onebot.host, port: store.settings.onebot.port,
+            token: store.settings.onebot.token, gadgetPort: store.settings.hook.gadgetPort,
+            explicitVersionConfigPath: store.settings.hook.versionConfigPath,
+            explicitImagePath: identity.imagePath, selfID: identity.selfID,
+            configOverrides: await nativeSendConfigOverrides())
+    }
+
+    func stopDiagnosticBridge() throws {
+        guard !store.isBotRunning, !store.isBotTransitioning else {
+            throw OneBotError.sendFailed("请通过停止机器人来关闭其使用的 bridge。")
+        }
+        hookManager.stopBridge()
+    }
+
     func sendManualMessage(conversationID: String, text: String) async {
         await bootstrapIfNeeded()
         var conversation: Conversation
@@ -4742,7 +4770,7 @@ final class RuntimeCoordinator {
             )
             let summary = "\(result.model) · \(Int(result.latencyMs)) ms · \(result.usage.totalTokens) tokens"
             log(.info, "AI", "测试「\(provider.name)」：\(summary)")
-            return .success(summary)
+            return .success("\(result.text)\n\(summary)")
         } catch {
             log(.error, "AI", "测试「\(provider.name)」失败：\(error.localizedDescription)")
             return .failure(error)
@@ -5946,6 +5974,14 @@ extension AppStore {
         let coordinator = RuntimeRegistry.coordinator(for: self)
         await coordinator.bootstrapIfNeeded()
         return await coordinator.testProvider(provider)
+    }
+
+    func startDiagnosticBridge() async throws {
+        try await RuntimeRegistry.coordinator(for: self).startDiagnosticBridge()
+    }
+
+    func stopDiagnosticBridge() throws {
+        try RuntimeRegistry.coordinator(for: self).stopDiagnosticBridge()
     }
 
     func sendManualMessage(conversationID: String, text: String) async {

@@ -105,7 +105,7 @@ struct MomentsInteractionActivitySheet: View {
             Button(L("重置互动记录")) {
                 isResetConfirmPresented = true
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .controlSize(.small)
             .disabled(isResetting)
             .help(L("清空已处理的动态与评论记录、当天次数与列表，并重置互动启用时间；不会删除已发送的评论"))

@@ -81,6 +81,8 @@ struct ProviderRow: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
+                Text("\(provider.apiStyle?.label ?? AIAPIStyle.chatCompletions.label) · effort \(provider.reasoningEffort?.rawValue ?? "默认")")
+                    .font(.caption2).foregroundStyle(.secondary)
 
                 HStack(spacing: 8) {
                     apiKeyState
@@ -128,7 +130,7 @@ struct ProviderRow: View {
 
                 HStack(spacing: 6) {
                     Button(L("编辑")) { onEdit() }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .controlSize(.small)
                     Button(role: .destructive) {
                         onDelete()
@@ -139,7 +141,7 @@ struct ProviderRow: View {
                             .frame(width: 22, height: 20)
                             .contentShape(Rectangle())
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .disabled(!canDelete)
                     .help(L("删除通道"))
                     .accessibilityLabel(L("删除通道"))
@@ -216,7 +218,7 @@ struct ProviderRow: View {
                 Label(L("测试"), systemImage: "bolt.horizontal")
                     .font(.caption2)
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .controlSize(.small)
             .help(L("测试此通道连接"))
         case .testing:
@@ -254,7 +256,7 @@ struct ProviderRow: View {
                 .frame(width: 18, height: 16)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.glass)
+        .compatibleGlassButton()
         .controlSize(.small)
         .help(L("重新测试"))
         .accessibilityLabel(Lf("重新测试 %@", provider.name))

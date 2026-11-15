@@ -270,7 +270,7 @@ struct MemoryEditorSheet: View {
                 Button(L("删除"), systemImage: "trash", role: .destructive) {
                     confirmDelete = true
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .disabled(isSaving)
             }
             Spacer()

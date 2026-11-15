@@ -10,6 +10,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -166,7 +167,7 @@ func initFlag() {
 	fmt.Println("SendURL", config.SendURL)
 	fmt.Println("ReceiveHost", config.ReceiveHost)
 	fmt.Println("FridaGadgetAddr", config.FridaGadgetAddr)
-	fmt.Println("OnebotToken", config.OnebotToken)
+	fmt.Println("OnebotToken", "[redacted]")
 	fmt.Println("ImagePath", config.ImagePath)
 	fmt.Println("MediaDir", config.MediaDir)
 	fmt.Println("WechatConf", config.WechatConf)
@@ -249,7 +250,11 @@ func loadJs() {
 		Fatal("解析 JSON 失败", "err", err)
 	}
 
-	codeTemplate, err := os.ReadFile("./script.js")
+	scriptPath := "./script.js"
+	if wechatHookConf["arch"] == "x64" {
+		scriptPath = "./script-x86_64.js"
+	}
+	codeTemplate, err := os.ReadFile(scriptPath)
 	if err != nil {
 		Fatal("读取脚本失败", "err", err)
 	}
@@ -458,6 +463,22 @@ func loadJs() {
 	}
 
 	fridaScript = script
+	if wechatHookConf["arch"] == "x64" {
+		if wechatHookConf["enableSend"] == "true" {
+			helperPath, err := filepath.Abs("./libwechat-x64.dylib")
+			if err != nil || fmt.Sprint(script.ExportsCall("x64InitNativeHelper", helperPath)) != "1" {
+				Fatal("x64 原生 completion helper 初始化失败", "err", err)
+			}
+			x64NativeTextSend.Store(true)
+		}
+		var health struct {
+			Ready bool `json:"ready"`
+		}
+		raw := fmt.Sprint(script.ExportsCall("x64Status"))
+		if json.Unmarshal([]byte(raw), &health) != nil || !health.Ready {
+			Fatal("x64 Hook 校验或安装失败", "status", raw)
+		}
+	}
 	Info("✅ Frida 已就绪，微信控制通道已打通")
 
 	// 通讯录 DB key：回灌上次缓存的密钥，hook 可直接解密 contact.db，不必等

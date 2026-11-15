@@ -50,16 +50,17 @@ PY
   return 1
 }
 
-# 架构自检：必须是 arm64（universal 也含 arm64）。损坏/截断的 dylib 在
+# 架构自检：必须覆盖当前运行架构。损坏/截断的 dylib 在
 # lipo 阶段就会失败，不会带着坏文件继续签名。
 verify_macho() {
-  local file="$1" info
+  local file="$1" info host_arch
+  host_arch="$(uname -m)"
   [ -f "$file" ] || fail "文件不存在：$file"
   info="$(/usr/bin/lipo -info "$file" 2>/dev/null)" \
     || fail "不是有效的 Mach-O 文件：$file"
   case "$info" in
-    *arm64*) ;;
-    *) fail "Frida Gadget 缺少 arm64 架构（$(printf '%s' "$info")）；本项目只支持 Apple Silicon。" ;;
+    *"$host_arch"*) ;;
+    *) fail "Frida Gadget 缺少当前架构 $host_arch（$(printf '%s' "$info")）。" ;;
   esac
   printf '%s\n' "$info"
 }

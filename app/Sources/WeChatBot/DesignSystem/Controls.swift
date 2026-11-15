@@ -140,7 +140,7 @@ struct IconActionButton: View {
                 .frame(width: 28, height: 24)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.glass)
+        .compatibleGlassButton()
         .disabled(!isEnabled)
         .help(L(help))
         .accessibilityLabel(L(help))

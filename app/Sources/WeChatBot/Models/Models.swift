@@ -633,6 +633,10 @@ struct AIProvider: Identifiable, Codable, Hashable {
     /// 温度按通道配置（每个通道通常对应一个模型），不再使用全局“按模型温度”表。
     var temperatureOverride: Double?
 
+    /// Optional fields preserve decoding of existing channel configurations.
+    var apiStyle: AIAPIStyle?
+    var reasoningEffort: AIReasoningEffort?
+
     /// 旧版按通道温度的默认值。迁移时视为「用户未自定义」，不写入通道温度；
     /// 否则新安装/升级后会凭空出现一条「自定义温度 0.7」，与「未配置即模型默认」矛盾。
     static let legacyDefaultTemperature: Double = 0.7
@@ -892,6 +896,8 @@ struct HookStatus: Codable, Hashable {
     var wechatVersionKnown: Bool = false
     var wechatRunning: Bool = false
     var gadgetInstalled: Bool = false
+    var usesLocalAttach: Bool = false
+    var hookAvailable: Bool { gadgetInstalled || (usesLocalAttach && matchedVersion) }
     var bridgeRunning: Bool = false
     var bridgePID: Int32 = 0
     var gatewayConnected: Bool = false

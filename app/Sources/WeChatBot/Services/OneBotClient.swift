@@ -196,11 +196,15 @@ final class OneBotClient: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         var pingInterval: TimeInterval = 20
 
         var webSocketURL: URL? {
-            URL(string: "ws://\(host):\(port)/ws")
+            URL(string: "ws://\(urlHost):\(port)/ws")
         }
 
         var httpBaseURL: URL? {
-            URL(string: "http://\(host):\(port)")
+            URL(string: "http://\(urlHost):\(port)")
+        }
+
+        private var urlHost: String {
+            host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
         }
     }
 

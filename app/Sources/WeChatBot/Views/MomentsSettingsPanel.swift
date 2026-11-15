@@ -377,7 +377,7 @@ struct MomentsSettingsPanel: View {
             Button(L("重新检测")) {
                 checkReadiness()
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .controlSize(.small)
             .disabled(!sns.enabled || isCheckingReadiness)
             .accessibilityLabel(L("重新检测朋友圈通道"))
@@ -672,7 +672,7 @@ struct MomentsSettingsPanel: View {
                 Button(L("去名单…")) {
                     botSubTabID = BotTab.lists.rawValue
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .help(L("切换到「机器人 → 名单」编辑聊天白名单"))
                 .accessibilityLabel(L("去名单分栏设置聊天白名单"))
@@ -898,7 +898,7 @@ struct MomentsSettingsPanel: View {
                     Button(store.settings.bot.dryRun ? L("演练一轮") : L("立即检查")) {
                         checkInteractionsNow()
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
                     .disabled(isCheckingInteractions || !store.isBotRunning || !interaction.enabled)
                     .help(store.settings.bot.dryRun
@@ -961,7 +961,7 @@ struct MomentsSettingsPanel: View {
                 Button(L("查看…")) {
                     isInteractionActivityPresented = true
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .accessibilityLabel(L("查看最近互动记录"))
             }
@@ -1003,7 +1003,7 @@ struct MomentsSettingsPanel: View {
                 Button(L("查看捕获步骤…")) {
                     store.presentCaptureSetupPrompt()
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .help(L("打开统一「捕获发送句柄」弹窗，查看评论/朋友圈捕获步骤"))
                 .accessibilityLabel(L("查看自动互动的捕获步骤"))
@@ -1107,7 +1107,7 @@ struct MomentsSettingsPanel: View {
                     Button(L("查看捕获步骤…")) {
                         store.presentCaptureSetupPrompt()
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
                     .help(L("打开统一「捕获发送句柄」弹窗，查看发布样本捕获步骤"))
                     .accessibilityLabel(L("捕获发布样本"))
@@ -1146,7 +1146,7 @@ struct MomentsSettingsPanel: View {
                     Button(L("查看捕获步骤…")) {
                     store.presentCaptureSetupPrompt()
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                     .help(L("打开统一「捕获发送句柄」弹窗，查看评论捕获步骤"))
                     .accessibilityLabel(L("捕获评论通道"))
@@ -1260,7 +1260,7 @@ struct MomentsSettingsPanel: View {
                 Button(L("查看…")) {
                     isOutboxPresented = true
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .accessibilityLabel(L("查看演练草稿"))
             }
@@ -1285,7 +1285,7 @@ struct MomentsSettingsPanel: View {
                 Button(L("预览文案")) {
                     previewDraft()
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .disabled(isPreviewingDraft || publish.sanitized.targetUserIDs.isEmpty)
                 .help(L("按当前发布对象与记忆卡生成一条演练草稿；不发送、不写计数"))
@@ -1348,7 +1348,7 @@ struct MomentsSettingsPanel: View {
                 Button(L("选择…")) {
                     isTargetsPresented = true
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .disabled(!publishEditable)
                 .accessibilityLabel(L("选择发布对象"))
@@ -1537,7 +1537,7 @@ struct MomentsSettingsPanel: View {
                         Button(L("重置今日计数")) {
                             isResetPublishUsagePresented = true
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .controlSize(.small)
                         .disabled(isResettingPublishUsage)
                         .help(L("只清除今天本机的发布计数；不会立即发送"))
@@ -1732,7 +1732,7 @@ struct MomentsSettingsPanel: View {
                 Label(L(addTitle), systemImage: "plus")
                     .font(.caption)
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .controlSize(.small)
             .disabled(!publishEditable || isAddDisabled)
             .help(addHelp)
@@ -1751,7 +1751,7 @@ struct MomentsSettingsPanel: View {
             Button(L(actionTitle)) {
                 action()
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .controlSize(.small)
             .disabled(!publishEditable)
             Spacer(minLength: 0)
@@ -1870,7 +1870,7 @@ struct MomentsSettingsPanel: View {
             Button(L("合并重叠时段")) {
                 mergeOverlappingWindows()
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .controlSize(.small)
             .disabled(!publishEditable)
             .help(L("把重叠的时段合并，覆盖范围不变"))
@@ -1961,7 +1961,7 @@ struct MomentsSettingsPanel: View {
             Button(L(actionTitle)) {
                 normalizeTimesAction()
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .controlSize(.small)
             .disabled(!publishEditable)
             .help(L("按时间升序排列时间点"))
@@ -2461,7 +2461,7 @@ private struct MomentsTargetsSheet: View {
                         let available = snsPublishCandidateIDs(store.conversations)
                         setTargets(selectedIDs.filter { available.contains($0) })
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
                 }
             }
@@ -2474,7 +2474,7 @@ private struct MomentsTargetsSheet: View {
                 Button(L("清空")) {
                     setTargets([])
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .disabled(selectedIDs.isEmpty)
                 Button(L("完成")) { dismiss() }

@@ -55,28 +55,15 @@ sha256_file() {
   fi
 }
 
-src_sha="$(sha256_file "${SRC}")"
-dst_sha="$(sha256_file "${DST}")"
-
-if [[ "${MODE}" == "check" ]]; then
-  if [[ "${src_sha}" == "${dst_sha}" ]]; then
-    (( QUIET )) || echo "✅ hook/script.js 与 bridge/script.js 一致（${src_sha}）"
-    exit 0
+for script_name in script.js script-x86_64.js; do
+  SRC="${ROOT_DIR}/hook/${script_name}"
+  DST="${ROOT_DIR}/bridge/${script_name}"
+  [[ -f "$SRC" ]] || { echo "Missing Hook: $SRC" >&2; exit 1; }
+  if [[ "$MODE" == "sync" ]]; then
+    cp -p "$SRC" "$DST"
+    chmod 644 "$DST"
   fi
-  echo "❌ hook/script.js 与 bridge/script.js 不一致：" >&2
-  echo "   hook  : ${src_sha}" >&2
-  echo "   bridge: ${dst_sha}" >&2
-  echo "   修复  : bash scripts/sync_hook_script.sh" >&2
-  exit 1
-fi
-
-if [[ "${src_sha}" == "${dst_sha}" ]]; then
-  (( QUIET )) || echo "✅ 已一致，无需同步（${src_sha}）"
-  exit 0
-fi
-
-cp -p "${SRC}" "${DST}"
-chmod 644 "${DST}"
-dst_sha="$(sha256_file "${DST}")"
-[[ "${src_sha}" == "${dst_sha}" ]] || { echo "❌ 同步后校验失败" >&2; exit 1; }
-(( QUIET )) || echo "✅ 已同步 bridge/script.js ← hook/script.js（${src_sha}）"
+  [[ -f "$DST" ]] && [[ "$(sha256_file "$SRC")" == "$(sha256_file "$DST")" ]] \
+    || { echo "Hook copy differs: $script_name; run scripts/sync_hook_script.sh" >&2; exit 1; }
+  (( QUIET )) || echo "✅ hook/${script_name} 与 bridge/${script_name} 一致"
+done

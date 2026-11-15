@@ -141,7 +141,7 @@ struct CharacterFullArchive: View {
                 .foregroundStyle(.tertiary)
             Spacer()
             Button(L("关闭")) { dismiss() }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, 18)

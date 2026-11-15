@@ -34,6 +34,9 @@ enum WeChatVersionSupport {
         let v = version.trimmingCharacters(in: .whitespacesAndNewlines)
         let b = build.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !v.isEmpty || !b.isEmpty else { return false }
+#if arch(x86_64)
+        if (v == "4.1.15.35" && (b.isEmpty || b == "270115")) || (v.isEmpty && b == "270115") { return true }
+#endif
         if knownPairs.contains(where: { pair in
             (v.isEmpty || pair.version == v) && (b.isEmpty || pair.build == b)
         }) {
@@ -44,16 +47,24 @@ enum WeChatVersionSupport {
 
     /// 单行展示，用于提示「当前适配哪些版本」。
     static var displayList: String {
-        knownPairs.map(\.display).joined(separator: "、")
+#if arch(x86_64)
+        return "4.1.15.35 (270115，x86_64 文字收发适配)"
+#else
+        return knownPairs.map(\.display).joined(separator: "、")
+#endif
     }
 
     /// 紧凑展示，用于状态卡副标题等空间有限的位置。
     static func compactList(language: String = L10n.language) -> String {
+#if arch(x86_64)
+        return language == "en" ? "4.1.15.35 (270115, x86_64 text send/receive)" : "4.1.15.35 (270115，x86_64 文字收发适配)"
+#else
         let current = knownPairs.prefix(2).map(\.version).joined(separator: " / ")
         guard knownPairs.count > 2 else { return current }
         return language == "en"
             ? "\(current) and \(knownPairs.count) versions"
             : "\(current) 等 \(knownPairs.count) 个版本"
+#endif
     }
 }
 

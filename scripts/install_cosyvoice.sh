@@ -107,6 +107,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+[[ "$(uname -m)" == "arm64" || "$DRY_RUN" -eq 1 ]] || die "本地 MLX 语音引擎需要 Apple Silicon；Intel/x86_64 请使用文字回复。"
+
 LOCAL_DIR="${HOME_DIR_ARG:-${COSYVOICE_HOME:-${COSYVOICE_LOCAL_DIR:-$REPO_ROOT/_local/cosyvoice}}}"
 VENV="${VENV_ARG:-${COSYVOICE_VENV:-$LOCAL_DIR/$QWEN3_VENV_DIR_NAME}}"
 MODEL_DIR="${MODEL_DIR_ARG:-${COSYVOICE_MODEL_DIR:-$LOCAL_DIR/models/$QWEN3_MODEL_NAME}}"

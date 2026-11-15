@@ -12,6 +12,7 @@ enum BotTab: String, CaseIterable, Identifiable, PageTabItem {
     case schedules
     case moments
     case voice
+    case test
 
     var id: String { rawValue }
 
@@ -25,6 +26,7 @@ enum BotTab: String, CaseIterable, Identifiable, PageTabItem {
         case .schedules: "定时"
         case .moments: "朋友圈"
         case .voice: "语音"
+        case .test: "测试"
         }
     }
 
@@ -38,6 +40,7 @@ enum BotTab: String, CaseIterable, Identifiable, PageTabItem {
         case .schedules: "calendar.badge.clock"
         case .moments: "photo.on.rectangle.angled"
         case .voice: "waveform"
+        case .test: "paperplane"
         }
     }
 
@@ -51,6 +54,7 @@ enum BotTab: String, CaseIterable, Identifiable, PageTabItem {
         case .schedules: "定时向指定会话发送固定内容"
         case .moments: "朋友圈开关、刷新方式、发布与自动发布"
         case .voice: "语音转写、TTS 与音色"
+        case .test: "连接 bridge 并向指定 wxid 手动发送"
         }
     }
 }
@@ -75,14 +79,14 @@ struct BotView: View {
                     store.persist()
                     toast.show("机器人设置已保存", tone: .success)
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
 
                 Button {
                     toggleBot()
                 } label: {
                     Label(L(store.isBotRunning ? "停止" : "启动"), systemImage: store.isBotRunning ? "stop.fill" : "play.fill")
                 }
-                .buttonStyle(.glassProminent)
+                .compatibleProminentButton()
                 .tint(store.isBotRunning ? Theme.danger : Theme.accent)
                 .disabled(store.isSwitchingAccount || store.isBotTransitioning)
                 .accessibilityHint(L(store.isSwitchingAccount
@@ -153,6 +157,9 @@ struct BotView: View {
             MomentsSettingsPanel()
         case .voice:
             VoiceSettingsPanel()
+        case .test:
+            OneBotTestPanel()
+            ManualSendTestPanel()
         }
     }
 
@@ -332,7 +339,7 @@ struct BotView: View {
                             .onSubmit { addKeyword() }
                             .frame(maxWidth: 220)
                         Button(L("添加"), action: addKeyword)
-                            .buttonStyle(.glass)
+                            .compatibleGlassButton()
                             .controlSize(.small)
                             .disabled(newKeyword.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
@@ -657,6 +664,7 @@ struct BotView: View {
                     }
                 }
                 .labelsHidden()
+                .pickerStyle(.menu)
                 .frame(maxWidth: 260)
 
                 Text(L("默认通道在「AI 模型 → 默认通道」设置"))
@@ -946,6 +954,7 @@ private struct IDListEditor: View {
 
             HStack(spacing: 6) {
                 TextField(placeholder, text: $newValue)
+                    .accessibilityLabel("\(title) ID 输入")
                     .textFieldStyle(.roundedBorder)
                     .font(.system(.caption, design: .monospaced))
                     .onSubmit { add(newValue) }
@@ -953,7 +962,7 @@ private struct IDListEditor: View {
                 Button(L("添加")) {
                     add(newValue)
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .disabled(newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -969,12 +978,12 @@ private struct IDListEditor: View {
     }
 
     private func add(_ raw: String) {
-        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty, !items.contains(value) else {
-            newValue = ""
-            return
+        var updated = items
+        for value in raw.components(separatedBy: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ",，;；"))) {
+            guard !value.isEmpty, !updated.contains(value) else { continue }
+            updated.append(value)
         }
-        items.append(value)
+        items = updated
         newValue = ""
     }
 

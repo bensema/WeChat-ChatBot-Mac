@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.1
 import PackageDescription
 
 // MARK: - WeChat AI native app
@@ -9,7 +9,7 @@ import PackageDescription
 let package = Package(
     name: "WeChatAI",
     platforms: [
-        .macOS(.v26)
+        .macOS(.v15)
     ],
     products: [
         .executable(name: "WeChatAI", targets: ["WeChatAI"])

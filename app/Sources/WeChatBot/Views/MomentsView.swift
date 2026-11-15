@@ -299,7 +299,7 @@ struct MomentsView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .help(L("从微信时间线继续加载更早的动态"))
@@ -398,7 +398,7 @@ struct MomentsView: View {
                 Button(L("查看捕获步骤…")) {
                     store.presentCaptureSetupPrompt()
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .help(L("打开「捕获发送句柄」弹窗，查看朋友圈捕获步骤"))
             }
         }
@@ -610,7 +610,7 @@ private struct MomentCard: View {
         }
         .padding(Theme.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(Theme.accent.opacity(0.035)), in: .rect(cornerRadius: Theme.cornerRadius))
+        .compatibleGlass(tint: Theme.accent.opacity(0.035), cornerRadius: Theme.cornerRadius)
         .overlay {
             RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous)
                 .strokeBorder(
@@ -1519,7 +1519,7 @@ private struct MomentDetailSection: View {
             if let error {
                 InlineNotice(kind: .danger, title: "加载评论失败", message: error)
                 Button(L("重试"), action: onRetry)
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
             } else {
                 incompletenessNotice
@@ -1651,7 +1651,7 @@ private struct MomentDetailSection: View {
             } label: {
                 Label(L("写评论"), systemImage: "square.and.pencil")
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .controlSize(.small)
             .help(L("评论这条动态"))
             Spacer(minLength: 4)
@@ -1870,7 +1870,7 @@ private struct MomentImageViewer: View {
                 Button(L("重试")) {
                     retry()
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
             }
         } else {
@@ -2049,7 +2049,7 @@ private struct MomentToolbarAction: View {
             .frame(width: 28, height: 24)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.glass)
+        .compatibleGlassButton()
         .disabled(!isEnabled || isLoading)
         .help(L(help))
         .accessibilityLabel(L(help))

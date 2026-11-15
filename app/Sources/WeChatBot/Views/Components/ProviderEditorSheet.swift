@@ -179,7 +179,7 @@ struct ProviderEditorSheet: View {
                     draft.baseURL = draft.kind.defaultBaseURL
                     draft.model = draft.kind.defaultModel
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .help(L("恢复所选类型的默认地址与模型"))
             }
@@ -208,6 +208,20 @@ struct ProviderEditorSheet: View {
                     .font(.system(.body, design: .monospaced))
                     .focused($focusedField, equals: .model)
                     .onChange(of: draft.model) { _, _ in clearError(.model) }
+            }
+
+            FormField(label: "API 协议", hint: "按服务支持选择；Codex / OpenAI 可使用 Responses，兼容服务通常使用 Chat Completions。") {
+                Picker("API 协议", selection: Binding(get: { draft.apiStyle ?? .chatCompletions }, set: { draft.apiStyle = $0 })) {
+                    ForEach(AIAPIStyle.allCases) { Text($0.label).tag($0) }
+                }
+                .labelsHidden().pickerStyle(.menu)
+            }
+            FormField(label: "推理强度 effort", hint: "默认不发送；可选 low 到 max。需模型和服务支持该值，越高通常耗时越长。") {
+                Picker("推理强度", selection: $draft.reasoningEffort) {
+                    Text("模型默认").tag(AIReasoningEffort?.none)
+                    ForEach(AIReasoningEffort.allCases) { Text($0.rawValue).tag(Optional($0)) }
+                }
+                .labelsHidden().pickerStyle(.menu)
             }
         }
     }
@@ -240,7 +254,7 @@ struct ProviderEditorSheet: View {
                     Image(systemName: showsSecret ? "eye.slash" : "eye")
                         .font(.system(size: 12))
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .help(L(showsSecret ? "隐藏密钥" : "显示密钥"))
                 .accessibilityLabel(L(showsSecret ? "隐藏密钥" : "显示密钥"))
             }
@@ -264,7 +278,7 @@ struct ProviderEditorSheet: View {
                     Button(L("清除已保存密钥…"), role: .destructive) {
                         showsClearKeyConfirm = true
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.mini)
                     .disabled(onDeleteKey == nil)
                 }

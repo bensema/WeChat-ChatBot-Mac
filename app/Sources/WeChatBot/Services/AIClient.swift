@@ -150,10 +150,13 @@ final class AIClient: @unchecked Sendable {
         if raw.isEmpty { raw = provider.kind.defaultBaseURL }
         guard !raw.isEmpty else { throw AIError.invalidBaseURL("(空)") }
         if raw.hasSuffix("/") { raw.removeLast() }
-        if !raw.lowercased().hasSuffix("/chat/completions") {
-            raw += "/chat/completions"
+        let suffix = provider.apiStyle == .responses ? "/responses" : "/chat/completions"
+        for existing in ["/chat/completions", "/responses"] where raw.lowercased().hasSuffix(existing) {
+            raw.removeLast(existing.count)
+            break
         }
-        guard let url = URL(string: raw), url.scheme?.hasPrefix("http") == true else {
+        raw += suffix
+        guard let url = URL(string: raw), ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
             throw AIError.invalidBaseURL(raw)
         }
         return url
@@ -199,10 +202,26 @@ final class AIClient: @unchecked Sendable {
             "max_tokens": max(1, provider.maxTokens),
             "stream": stream
         ]
+        if provider.apiStyle == .responses {
+            payload.removeValue(forKey: "messages")
+            payload.removeValue(forKey: "max_tokens")
+            payload["max_output_tokens"] = max(1, provider.maxTokens)
+            payload["store"] = false
+            payload["input"] = messages.map { message -> [String: Any] in
+                var parts: [[String: Any]] = [["type": message.role == .assistant ? "output_text" : "input_text", "text": message.content]]
+                parts += message.imageURLs.map { ["type": "input_image", "image_url": $0] }
+                return ["role": message.role.rawValue, "content": parts]
+            }
+            if let effort = provider.reasoningEffort { payload["reasoning"] = ["effort": effort.rawValue] }
+        } else if let effort = provider.reasoningEffort {
+            payload["reasoning_effort"] = effort.rawValue
+            payload.removeValue(forKey: "max_tokens")
+            payload["max_completion_tokens"] = max(1, provider.maxTokens)
+        }
         if let temperature {
             payload["temperature"] = min(max(temperature, 0), 2)
         }
-        if let thinking {
+        if let thinking, provider.apiStyle != .responses {
             // DeepSeek 扩展字段：顶层 {"thinking": {"type": "enabled/disabled"}}。
             payload["thinking"] = ["type": thinking.rawValue]
         }
@@ -328,7 +347,7 @@ final class AIClient: @unchecked Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = max(5, provider.timeoutSeconds)
-        if !provider.stream {
+        if !stream {
             request.setValue("application/json", forHTTPHeaderField: "Accept")
         } else {
             request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -377,6 +396,8 @@ final class AIClient: @unchecked Sendable {
             throw AIError.malformedResponse(String(data: data.prefix(300), encoding: .utf8) ?? "非 JSON")
         }
         if let error = Self.providerError(from: object) { throw AIError.providerError(error) }
+
+        if provider.apiStyle == .responses { return try Self.responsesOutcome(object) }
 
         let choice = (object["choices"] as? [[String: Any]])?.first
         let message = choice?["message"] as? [String: Any]
@@ -442,6 +463,19 @@ final class AIClient: @unchecked Sendable {
                         )
                     }
                     if let error = Self.providerError(from: object) { throw AIError.providerError(error) }
+                    if provider.apiStyle == .responses {
+                        let type = object["type"] as? String ?? ""
+                        if type == "response.output_text.delta", let delta = object["delta"] as? String {
+                            collected += delta
+                            onDelta?(delta)
+                        } else if type == "response.completed", let response = object["response"] as? [String: Any] {
+                            return try Self.responsesOutcome(response)
+                        } else if ["response.failed", "response.incomplete", "error"].contains(type) {
+                            let response = object["response"] as? [String: Any] ?? object
+                            throw AIError.providerError(Self.providerError(from: response) ?? "Responses 未完成：\(type)")
+                        }
+                        continue
+                    }
                     guard let choice = (object["choices"] as? [[String: Any]])?.first else { continue }
                     let delta = (choice["delta"] as? [String: Any]) ?? (choice["message"] as? [String: Any])
                     if let content = Self.contentString(delta?["content"]), !content.isEmpty {
@@ -463,6 +497,21 @@ final class AIClient: @unchecked Sendable {
     }
 
     // MARK: Error mapping
+
+    private static func responsesOutcome(_ object: [String: Any]) throws -> Outcome {
+        if let error = providerError(from: object) { throw AIError.providerError(error) }
+        if ["failed", "incomplete", "cancelled"].contains(object["status"] as? String ?? "") {
+            throw AIError.providerError("Responses 未完成：\(object["status"] ?? "unknown")")
+        }
+        let text = (object["output"] as? [[String: Any]] ?? []).filter { $0["type"] as? String == "message" }
+            .flatMap { $0["content"] as? [[String: Any]] ?? [] }
+            .filter { $0["type"] as? String == "output_text" }
+            .compactMap { $0["text"] as? String }.joined()
+        let usage = object["usage"] as? [String: Any] ?? [:]
+        return Outcome(text: text, model: object["model"] as? String ?? "",
+            usage: AIUsage(promptTokens: int(usage["input_tokens"]), completionTokens: int(usage["output_tokens"]), totalTokens: int(usage["total_tokens"])),
+            finishReason: object["status"] as? String)
+    }
 
     private static func validate(response: URLResponse, body: Data) throws {
         guard let http = response as? HTTPURLResponse else {

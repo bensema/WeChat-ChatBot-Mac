@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# 从 bridge/ 源码构建 bridge/onebot（macOS arm64，CGO 静态链接 Frida）。
+# 从 bridge/ 源码构建 bridge/onebot（macOS arm64 / x86_64，CGO 静态链接 Frida）。
 #
 # 固定版本：
-#   Go 1.25.14 (darwin-arm64)
-#   frida-core-devkit 17.8.0 (macos-arm64)
+#   Go 1.25.14 (darwin-arm64 / darwin-amd64)
+#   frida-core-devkit 17.8.0 (macos-arm64 / macos-x86_64)
 #
 # 所有下载/缓存默认放在 /tmp/chatbot-bridge-cache，不修改系统 PATH，
 # 不安装 Homebrew 包，也不写用户的 Go 全局配置（GOENV=off）。
@@ -17,13 +17,29 @@
 #
 set -euo pipefail
 
-GO_VERSION="1.25.14"
-GO_SHA256="5b26c0b6f308240fca2614fb02f622cfcc8c0cc3b69c78bba4845489a4590259"
-GO_ARCHIVE_NAME="go${GO_VERSION}.darwin-arm64.tar.gz"
+# Host Go experiments may belong to a newer globally installed toolchain.
+export GOEXPERIMENT=""
+export GOENV=off
+export GOTOOLCHAIN=local
 
+HOST_ARCH="$(uname -m)"
+case "$HOST_ARCH" in
+  arm64)
+    GO_ARCH=arm64
+    GO_SHA256="5b26c0b6f308240fca2614fb02f622cfcc8c0cc3b69c78bba4845489a4590259"
+    FRIDA_DEVKIT_SHA256="7606cd0eda21829e268ed66e1ac7dcd819570baee7b7049a96e8986969bf32d1"
+    ;;
+  x86_64)
+    GO_ARCH=amd64
+    GO_SHA256="b09087a67d5792a8b0fcbf74212d62560c94ac8a8fd750ff920d8cb5f1e20118"
+    FRIDA_DEVKIT_SHA256="2316fb57031e651ffdd609e4d8c646bff245318edd2915ffe3214db7c828520f"
+    ;;
+  *) printf 'Unsupported architecture: %s\n' "$HOST_ARCH" >&2; exit 1 ;;
+esac
+GO_VERSION="1.25.14"
+GO_ARCHIVE_NAME="go${GO_VERSION}.darwin-${GO_ARCH}.tar.gz"
 FRIDA_VERSION="17.8.0"
-FRIDA_DEVKIT_NAME="frida-core-devkit-${FRIDA_VERSION}-macos-arm64"
-FRIDA_DEVKIT_SHA256="7606cd0eda21829e268ed66e1ac7dcd819570baee7b7049a96e8986969bf32d1"
+FRIDA_DEVKIT_NAME="frida-core-devkit-${FRIDA_VERSION}-macos-${HOST_ARCH}"
 FRIDA_DEVKIT_URL="https://github.com/frida/frida/releases/download/${FRIDA_VERSION}/${FRIDA_DEVKIT_NAME}.tar.xz"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,7 +47,7 @@ ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 BRIDGE_DIR="${ROOT_DIR}/bridge"
 BIN="${BRIDGE_DIR}/onebot"
 CACHE_DIR="${BRIDGE_CACHE_DIR:-/tmp/chatbot-bridge-cache}"
-GO_ROOT="${CACHE_DIR}/go${GO_VERSION}"
+GO_ROOT="${CACHE_DIR}/go${GO_VERSION}-${GO_ARCH}"
 GO_ARCHIVE="${CACHE_DIR}/${GO_ARCHIVE_NAME}"
 DEVKIT_DIR="${CACHE_DIR}/${FRIDA_DEVKIT_NAME}"
 DEVKIT_ARCHIVE="${CACHE_DIR}/${FRIDA_DEVKIT_NAME}.tar.xz"
@@ -91,7 +107,7 @@ download_devkit_archive() {
 # ---------- 环境检查 ----------
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "本脚本只支持 macOS。"
-[[ "$(uname -m)" == "arm64" ]] || fail "当前架构 $(uname -m)；本脚本/预编译 Frida devkit 只支持 arm64（Apple Silicon）。"
+
 
 command -v curl >/dev/null 2>&1 || fail "缺少 curl。"
 command -v shasum >/dev/null 2>&1 || fail "缺少 shasum。"
@@ -106,9 +122,18 @@ for required in main.go http.go websocket.go worker.go proto; do
   [[ -e "${BRIDGE_DIR}/${required}" ]] || fail "bridge/ 缺少 ${required}；请检查源码是否完整。"
 done
 
+# An ordinary native std::function completion must outlive Frida script detach.
+if [[ "$HOST_ARCH" == "x86_64" ]]; then
+  info "构建 x86_64 原生文本 completion helper…"
+  xcrun clang++ -std=c++17 -dynamiclib -O2 -arch x86_64 \
+    -mmacosx-version-min=15.0 "$BRIDGE_DIR/native/text_completion.cpp" \
+    -o "$BRIDGE_DIR/libwechat-x64.dylib"
+  /usr/bin/codesign -f -s - --timestamp=none "$BRIDGE_DIR/libwechat-x64.dylib"
+fi
+
 mkdir -p "${CACHE_DIR}"
 CACHE_DIR="$(cd "${CACHE_DIR}" && pwd)"
-GO_ROOT="${CACHE_DIR}/go${GO_VERSION}"
+GO_ROOT="${CACHE_DIR}/go${GO_VERSION}-${GO_ARCH}"
 GO_ARCHIVE="${CACHE_DIR}/${GO_ARCHIVE_NAME}"
 DEVKIT_DIR="${CACHE_DIR}/${FRIDA_DEVKIT_NAME}"
 DEVKIT_ARCHIVE="${CACHE_DIR}/${FRIDA_DEVKIT_NAME}.tar.xz"
@@ -167,7 +192,7 @@ fi
 export PATH="${GO_ROOT}/bin:${PATH}"
 export GOTOOLCHAIN=local
 export GOENV=off
-export GOARCH=arm64
+export GOARCH="${GO_ARCH}"
 export CGO_ENABLED=1
 export GOCACHE="${CACHE_DIR}/go-build"
 export GOMODCACHE="${CACHE_DIR}/go-mod"
@@ -192,15 +217,15 @@ fi
 
 # ---------- 编译 ----------
 
-info "编译 bridge/onebot（arm64，CGO，Frida 静态链接；-trimpath -ldflags=\"-s -w\"）…"
+info "编译 bridge/onebot（${HOST_ARCH}，CGO，Frida 静态链接；-trimpath -ldflags=\"-s -w\"）…"
 ( cd "${BRIDGE_DIR}" && "${GO_BIN}" build -trimpath -buildvcs=false -ldflags="-s -w" -o "${BIN}" . )
 
 [[ -x "${BIN}" ]] || fail "编译未产出可执行文件：${BIN}"
-file "${BIN}" | grep -q 'Mach-O 64-bit executable arm64' \
-  || fail "产物不是 Mach-O arm64：$(file "${BIN}")"
+file "${BIN}" | grep -q "Mach-O 64-bit executable ${HOST_ARCH}" \
+  || fail "产物不是 Mach-O ${HOST_ARCH}：$(file "${BIN}")"
 "${BIN}" -h >/dev/null 2>&1 \
   || fail "onebot -h 运行失败（动态库/签名/架构问题）。"
-info "二进制自检通过：Mach-O arm64，-h 正常。"
+info "二进制自检通过：Mach-O ${HOST_ARCH}，-h 正常。"
 
 # bridge 运行时只读取自己目录下的 script.js；若仓库里有 hook/script.js，检查两者一致。
 HOOK_SCRIPT="${ROOT_DIR}/hook/script.js"

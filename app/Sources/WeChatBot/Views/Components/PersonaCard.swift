@@ -79,7 +79,7 @@ struct PersonaCard: View {
                 }
                 Spacer(minLength: 4)
                 Button(L("编辑")) { onEdit() }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
             }
             .font(.caption2)
@@ -87,7 +87,7 @@ struct PersonaCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular.tint(tint.opacity(0.045)), in: .rect(cornerRadius: 16))
+        .compatibleGlass(tint: tint.opacity(0.045), cornerRadius: 16)
         .accessibilityElement(children: .contain)
     }
 }

@@ -30,7 +30,7 @@
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.social-networking</string>
     <key>LSMinimumSystemVersion</key>
-    <string>26.0</string>
+    <string>15.0</string>
     <!--
       The bundle launches as a menu-bar agent (no Dock icon, no app menu bar).
       ActivationPolicyController promotes the process to .regular while the main

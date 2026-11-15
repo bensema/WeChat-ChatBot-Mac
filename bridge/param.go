@@ -20,6 +20,8 @@ var (
 	// selfIDFlag 来自 -self_id：App 知道当前账号时优先使用，避免多账号目录下
 	// 从 image_path 推导出错误账号（曾导致自消息方向判断失效）。
 	selfIDFlag = ""
+	// x64 native text Tasks complete through their C++ completion, not buf2RespChan.
+	x64NativeTextSend atomic.Bool
 
 	// 全局共享的header字段，启动时初始化一次，两个protobuf共用
 	globalSessionId   = uint32(rand.Int63n(4000000000) + 100000000)

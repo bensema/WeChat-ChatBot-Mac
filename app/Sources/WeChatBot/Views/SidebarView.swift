@@ -312,10 +312,7 @@ struct SidebarStatusCapsule: View {
             }
             .padding(10)
             .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-            .glassEffect(
-                .regular.tint((store.isBotRunning ? Theme.accent : Color.primary).opacity(0.045)),
-                in: .rect(cornerRadius: 13)
-            )
+            .compatibleGlass(tint: (store.isBotRunning ? Theme.accent : Color.primary).opacity(0.045), cornerRadius: 13)
         }
         .buttonStyle(.plain)
         .help(L("查看机器人状态"))

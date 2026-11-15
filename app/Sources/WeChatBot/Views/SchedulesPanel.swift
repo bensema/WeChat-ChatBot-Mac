@@ -41,7 +41,7 @@ struct SchedulesPanel: View {
                     } label: {
                         Label(L("新建任务"), systemImage: "plus")
                     }
-                    .buttonStyle(.glassProminent)
+                    .compatibleProminentButton()
                     .controlSize(.small)
                     .tint(Theme.accent)
                 }

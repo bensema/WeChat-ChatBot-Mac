@@ -256,7 +256,7 @@ struct MomentCommentSheet: View {
                 Button(L("重新检测")) {
                     Task { await recheckCommentChannel() }
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .disabled(isRechecking)
                 .help(L("只重新查询评论通道状态，不拉取时间线"))
@@ -405,7 +405,7 @@ struct MomentCommentSheet: View {
             }
             Spacer(minLength: 4)
             Button(L("取消")) { dismiss() }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .disabled(moments.isCommenting)
             Button(L("发送")) { isConfirming = true }
                 .buttonStyle(.borderedProminent)

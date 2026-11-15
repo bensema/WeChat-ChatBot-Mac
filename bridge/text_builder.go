@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"time"
 
 	wxproto "github.com/yincongcyincong/weixin-macos/onebot/proto"
@@ -22,6 +23,11 @@ func BuildTextMsgProto(receiver, content, atUser string) (string, error) {
 
 	// 生成随机消息ID
 	msgId := rand.Int63n(1<<34) | (1 << 34)
+	// 4.1.15 x86_64 parses clientmsgid as uint32. Keep it positive and nonzero;
+	// a 34-bit ID silently changes when the native protobuf object serializes it.
+	if runtime.GOARCH == "amd64" {
+		msgId = int64(rand.Int31n(1<<31-1)) + 1
+	}
 
 	msg := &wxproto.WxSendTextMsg{
 		Type: 1,

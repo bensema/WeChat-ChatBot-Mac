@@ -65,14 +65,14 @@ struct LogsView: View {
             } label: {
                 Label(L(isPaused ? "继续" : "暂停"), systemImage: isPaused ? "play.fill" : "pause.fill")
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
 
             Button {
                 exportLogs()
             } label: {
                 Label(L("导出"), systemImage: "square.and.arrow.up")
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .disabled(displayLogs.isEmpty)
 
             Button {
@@ -80,7 +80,7 @@ struct LogsView: View {
             } label: {
                 Label(L("清空"), systemImage: "trash")
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .disabled(feed.logs.isEmpty)
         }
     }

@@ -332,6 +332,9 @@ final class HookManager {
         updated.versionConfigFile = versionConfig?.path
             ?? AppResources.expectedVersionConfigPath(version: installation.version)
         updated.matchedVersion = versionConfig != nil
+        updated.usesLocalAttach = AppResources.usesLocalAttach(
+            version: installation.version, explicitPath: configuredVersionConfigPath
+        )
 
         // Optional: merge richer state from manage_wechat.sh (signature, backup path).
         // 必须对「实际生效的微信」执行，否则设置路径失效时会误报未安装。
@@ -358,7 +361,7 @@ final class HookManager {
         } else if !installation.exists {
             updated.state = .notInstalled
             updated.detail = "未找到微信：\(wechatPath)"
-        } else if !updated.gadgetInstalled {
+        } else if !updated.hookAvailable {
             updated.state = .notInstalled
             updated.detail = "尚未安装 Frida Gadget"
         } else if !updated.wechatRunning {
@@ -375,7 +378,7 @@ final class HookManager {
             }
         } else {
             updated.state = .installed
-            updated.detail = ""
+            updated.detail = updated.usesLocalAttach ? "x86_64 文字收发适配：直接附加" : ""
         }
         if commandLineTools.isReady, !updated.matchedVersion, installation.exists, updated.gadgetInstalled {
             updated.detail = "Hook 版本文件未就绪：\(updated.versionConfigFile)"
@@ -671,7 +674,12 @@ final class HookManager {
             publish(updated)
             throw HookError.commandLineToolsMissing
         }
-        guard await installation.hasGadgetLoadCommand() else { throw HookError.gadgetNotInstalled }
+        let localAttach = AppResources.usesLocalAttach(
+            version: installation.version, explicitPath: explicitVersionConfigPath
+        )
+        if !localAttach {
+            guard await installation.hasGadgetLoadCommand() else { throw HookError.gadgetNotInstalled }
+        }
 
         guard let versionConfig = AppResources.materializedVersionConfig(
             version: installation.version,
@@ -708,7 +716,7 @@ final class HookManager {
         try? FileManager.default.createDirectory(at: AppPaths.bridgeLogDirectory, withIntermediateDirectories: true)
 
         var arguments = [
-            "-type=gadget",
+            "-type=\(localAttach ? "local" : "gadget")",
             "-gadget_addr=127.0.0.1:\(gadgetPort)",
             "-wechat_conf=\(versionConfig.path)",
             "-receive_host=\(host):\(port)",
@@ -804,9 +812,9 @@ final class HookManager {
         updated.bridgeRunning = false
         updated.bridgePID = 0
         updated.gatewayConnected = false
-        if updated.gadgetInstalled && updated.wechatRunning {
+        if updated.hookAvailable && updated.wechatRunning {
             updated.state = .installed
-            updated.detail = ""
+            updated.detail = updated.usesLocalAttach ? "x86_64 文字收发适配：直接附加" : ""
         }
         publish(updated)
     }

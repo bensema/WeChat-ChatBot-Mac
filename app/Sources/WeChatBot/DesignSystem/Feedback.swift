@@ -43,7 +43,7 @@ struct EmptyState: View {
             }
             if let actionTitle, let action {
                 Button(L(actionTitle), action: action)
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.regular)
             }
         }
@@ -253,10 +253,7 @@ struct ToastView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .glassEffect(
-            .regular.tint(message.tone.tint.opacity(0.12)),
-            in: .capsule
-        )
+        .compatibleGlass(tint: message.tone.tint.opacity(0.12), cornerRadius: 999)
     }
 }
 

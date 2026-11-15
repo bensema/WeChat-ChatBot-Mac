@@ -64,7 +64,7 @@ struct MomentsOutboxSheet: View {
                     store.snsOutbox.removeAll()
                     toast.show(L("已清空演练草稿"), tone: .info, symbol: "trash")
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 .disabled(drafts.isEmpty)
                 Button(L("完成")) { dismiss() }
@@ -98,7 +98,7 @@ struct MomentsOutboxSheet: View {
                 Button(L("删除")) {
                     store.snsOutbox.remove(id: draft.id)
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
             }
         }

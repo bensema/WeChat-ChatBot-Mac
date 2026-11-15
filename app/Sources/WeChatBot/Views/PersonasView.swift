@@ -18,7 +18,7 @@ struct PersonasView: View {
             } label: {
                 Label(L("添加人格"), systemImage: "plus")
             }
-            .buttonStyle(.glassProminent)
+            .compatibleProminentButton()
             .tint(Theme.accent)
         } content: {
             if store.personas.isEmpty {

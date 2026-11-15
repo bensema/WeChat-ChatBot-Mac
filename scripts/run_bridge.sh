@@ -37,6 +37,7 @@ TOKEN="${TOKEN:-}"
 IMAGE_PATH="${IMAGE_PATH:-}"
 MEDIA_DIR="${MEDIA_DIR:-$HOME/Library/Application Support/WeChatAI/media}"
 GADGET_ADDR="${GADGET_ADDR:-127.0.0.1:27042}"
+BRIDGE_TYPE="${BRIDGE_TYPE:-auto}"
 LOG_LEVEL="${LOG_LEVEL:-info}"
 BRIDGE_BIN="${BRIDGE_BIN:-${BRIDGE_DIR}/onebot}"
 TOKEN_GENERATED=0
@@ -58,6 +59,7 @@ usage() {
   --token <token>       OneBot token（默认随机生成 64 字符 hex）
   --image-path <dir>    微信图片临时目录（必填，必须已存在）
   --media-dir <dir>     入站图片落盘目录（默认 ~/Library/Application Support/WeChatAI/media）
+  --type <mode>        auto|local|gadget（auto 按版本配置选择）
   --gadget-addr <addr>  Frida Gadget 地址（默认 127.0.0.1:27042）
   --log-level <level>   debug|info|warn|error（默认 info）
   --bin <path>          onebot 可执行文件（默认 bridge/onebot）
@@ -102,6 +104,9 @@ while (( $# > 0 )); do
     --media-dir)
       [[ $# -ge 2 ]] || fail "$1 需要一个目录"
       MEDIA_DIR="$2"; shift 2 ;;
+    --type)
+      [[ $# -ge 2 ]] || fail "$1 需要 local 或 gadget"
+      BRIDGE_TYPE="$2"; shift 2 ;;
     --gadget-addr)
       [[ $# -ge 2 ]] || fail "$1 需要一个地址"
       GADGET_ADDR="$2"; shift 2 ;;
@@ -139,6 +144,10 @@ BRIDGE_DIR="$(cd "$(dirname "${BRIDGE_BIN}")" 2>/dev/null && pwd)" \
 [[ -f "${WECHAT_CONF}" ]] || fail "Hook 版本配置不存在：${WECHAT_CONF}\n  该文件由 hook 成员/App 生成；默认期望 hook/versions/4_2_0_17_mac.json。"
 [[ -n "${IMAGE_PATH}" ]] || fail "缺少 IMAGE_PATH。\n  指向微信容器目录：.../xwechat_files/<wxid>/temp/<...>/Img/（App 负责探测/创建）。"
 [[ -d "${IMAGE_PATH}" ]] || fail "IMAGE_PATH 不存在或不是目录：${IMAGE_PATH}\n  请先确认微信已运行并创建该临时目录；App 侧会做同样检查。"
+if [[ "$BRIDGE_TYPE" == "auto" ]]; then
+  BRIDGE_TYPE="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("attachMode", "gadget"))' "$WECHAT_CONF")"
+fi
+case "$BRIDGE_TYPE" in local|gadget) ;; *) fail "BRIDGE_TYPE 必须为 auto/local/gadget" ;; esac
 mkdir -p "${MEDIA_DIR}" 2>/dev/null || fail "无法创建 MEDIA_DIR：${MEDIA_DIR}\n  请确认路径可写；入站图片获取会写入该目录。"
 [[ -d "${MEDIA_DIR}" ]] || fail "MEDIA_DIR 不是目录：${MEDIA_DIR}"
 
@@ -186,7 +195,7 @@ EOF
 
 cd "${BRIDGE_DIR}"
 exec "${BRIDGE_BIN}" \
-  -type=gadget \
+  -type="${BRIDGE_TYPE}" \
   -gadget_addr="${GADGET_ADDR}" \
   -wechat_conf="${WECHAT_CONF}" \
   -receive_host="127.0.0.1:${PORT}" \

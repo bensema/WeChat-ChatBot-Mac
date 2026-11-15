@@ -111,7 +111,7 @@ struct CommandLineToolsCard: View {
                 } label: {
                     Label(L("安装 Command Line Tools"), systemImage: "arrow.down.circle")
                 }
-                .buttonStyle(.glassProminent)
+                .compatibleProminentButton()
                 .tint(Theme.accent)
                 .disabled(isDetecting || isRequestingInstall || isWaitingForInstall)
                 .accessibilityLabel(L("安装 Command Line Tools"))
@@ -123,7 +123,7 @@ struct CommandLineToolsCard: View {
             } label: {
                 Label(L(isDetecting ? "检测中…" : "重新检测"), systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .disabled(isDetecting || isRequestingInstall)
             .accessibilityLabel(L("重新检测"))
             .help(L("重新检测"))

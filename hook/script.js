@@ -1,3 +1,4 @@
+if (Process.arch !== "arm64") throw new Error("arm64 Hook cannot run on " + Process.arch + "; select an architecture-specific version config");
 var targetPath = "/Applications/WeChat.app/Contents/MacOS/WeChat";
 var module = Process.enumerateModules().find(function(m) {
     return m.path === targetPath || m.name === "WeChat";

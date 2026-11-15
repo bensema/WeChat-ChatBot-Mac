@@ -59,6 +59,11 @@ else
   FAILED=1
 fi
 
+if (( DOCS_ONLY == 0 )) && command -v node >/dev/null 2>&1; then
+  step "x86_64 Hook 消息契约与镜像保护"
+  node --test "$ROOT_DIR/hook/tests/x86_64.test.cjs" || FAILED=1
+fi
+
 # ---------- 3. 文档链接 ----------
 step "Markdown 相对链接"
 if python3 "${ROOT_DIR}/scripts/check_docs.py"; then

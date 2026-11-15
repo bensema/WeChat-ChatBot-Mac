@@ -156,7 +156,7 @@ struct SettingsUpdateSection: View {
                 Button(L("取消跳过")) {
                     updates.clearSkippedRelease()
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
             }
         }
@@ -242,7 +242,7 @@ struct SettingsUpdateSection: View {
             Button(L("立即检查")) {
                 Task { await updates.checkForUpdates(userInitiated: true) }
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .controlSize(.small)
             .disabled(updates.isBusy)
         }
@@ -265,7 +265,7 @@ struct SettingsUpdateSection: View {
                 } label: {
                     Label(L("在 GitHub 查看发布说明"), systemImage: "arrow.up.right.square")
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
 
                 InlineNotice(
@@ -280,14 +280,14 @@ struct SettingsUpdateSection: View {
                     } label: {
                         Label(L("下载并安装"), systemImage: "arrow.down.circle")
                     }
-                    .buttonStyle(.glassProminent)
+                    .compatibleProminentButton()
                     .tint(Theme.accent)
                     .disabled(!updates.canInstallInPlace || updates.isBusy)
 
                     Button(L("跳过此版本")) {
                         updates.skipAvailableRelease()
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.regular)
                     .disabled(updates.isBusy)
 
@@ -388,7 +388,7 @@ struct SettingsUpdateSection: View {
                         } label: {
                             Label(L("在 GitHub 查看完整发布说明"), systemImage: "arrow.up.right.square")
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .controlSize(.small)
                     }
                 }
@@ -450,13 +450,13 @@ struct SettingsUpdateSection: View {
                         updates.dismissFailure()
                         Task { await updates.checkForUpdates(userInitiated: true) }
                     }
-                    .buttonStyle(.glassProminent)
+                    .compatibleProminentButton()
                     .tint(Theme.accent)
 
                     Button(L("打开发布页")) {
                         updates.openReleasePage()
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.regular)
                     Spacer(minLength: 0)
                 }
@@ -531,7 +531,7 @@ struct SettingsUpdateSection: View {
                         Button(L("打开发布页手动下载")) {
                             updates.openReleasePage()
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .controlSize(.small)
                     }
                     .padding(14)
@@ -606,7 +606,7 @@ struct SettingsUpdateSection: View {
                 } label: {
                     Label(L("在 GitHub 查看全部版本"), systemImage: "arrow.up.right.square")
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
 
                 Button {
@@ -614,7 +614,7 @@ struct SettingsUpdateSection: View {
                 } label: {
                     Label(L("打开更新日志"), systemImage: "doc.text.magnifyingglass")
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
                 Spacer(minLength: 0)
             }

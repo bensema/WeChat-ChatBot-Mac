@@ -1359,14 +1359,15 @@ func extractPCMFromWAVIfPresent(data []byte, fallbackSampleRate int) ([]byte, in
 	return pcm, sampleRate, nil
 }
 
-// encodeVoicePCM16kToTencentSilk 用 go-silk 把 16k 单声道 s16le PCM 编码成
+// encodeVoicePCM16kToTencentSilk 用官方 SILK SDK 把 16k 单声道 s16le PCM 编码成
 // Tencent SILK（`\x02#!SILK_V3` 头），返回 SILK 与以帧时长计算的 duration_ms。
 // 不依赖 ffmpeg / pilk（与 legacy ConvertToSilk 的外部依赖解耦）。
 func encodeVoicePCM16kToTencentSilk(pcm []byte) ([]byte, int32, error) {
 	if len(pcm) == 0 || len(pcm)%2 != 0 {
 		return nil, 0, errVoicePCMInvalid
 	}
-	silkData, err := silk.EncodePcmBuffToSilk(pcm, voiceSampleRate, voiceSampleRate, true)
+	// go-silk's encoder fails on Intel; use the same portable SDK as the 24k path.
+	silkData, err := silkenc.Encode(pcm, voiceSampleRate)
 	if err != nil || len(silkData) == 0 {
 		return nil, 0, errVoiceEncodeFailed
 	}

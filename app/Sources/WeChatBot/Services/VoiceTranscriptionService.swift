@@ -21,11 +21,14 @@ struct VoiceTranscription: Sendable, Equatable {
 /// - `failed`：识别运行期失败（含超时）。
 enum VoiceTranscriptionError: LocalizedError, Equatable {
     case assetUnavailable
+    case unsupportedPlatform
     case unreadableAudio
     case failed(String)
 
     var errorDescription: String? {
         switch self {
+        case .unsupportedPlatform:
+            return "本机系统不支持 SpeechAnalyzer 本地语音识别（需要 macOS 26 及支持的硬件）"
         case .assetUnavailable:
             return "系统尚未安装中文语音识别资源（系统设置 → 通用 → 语言与地区 → 语音识别资源）"
         case .unreadableAudio:
@@ -104,6 +107,8 @@ actor VoiceTranscriptionService {
 
     /// 当前系统是否已安装对应语言的本地语音资源。
     func assetStatus(locale: Locale = VoiceTranscriptionService.defaultLocale) async -> VoiceAssetStatus {
+#if compiler(>=6.2)
+        guard #available(macOS 26.0, *) else { return .unsupported }
         guard SpeechTranscriber.isAvailable else { return .unsupported }
         guard let resolved = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
             return .unsupported
@@ -115,12 +120,17 @@ actor VoiceTranscriptionService {
         case .unsupported: return .unsupported
         @unknown default: return .unknown
         }
+#else
+        return .unsupported
+#endif
     }
 
     /// 直接调用系统 AssetInventory 下载当前语言的本地语音资源。
     /// 下载完成后 `AssetInventory.status` 可能仍短暂返回 `.supported`，因此
     /// 转写实现不再把 `.supported` 当成硬失败（见 analyze）。
     func installAssets(locale: Locale = VoiceTranscriptionService.defaultLocale) async throws {
+#if compiler(>=6.2)
+        guard #available(macOS 26.0, *) else { throw VoiceTranscriptionError.unsupportedPlatform }
         guard SpeechTranscriber.isAvailable else { throw VoiceTranscriptionError.assetUnavailable }
         guard let resolved = await SpeechTranscriber.supportedLocale(equivalentTo: locale) else {
             throw VoiceTranscriptionError.failed("系统不支持该语言（\(locale.identifier)）的本地语音识别")
@@ -131,6 +141,9 @@ actor VoiceTranscriptionService {
             throw VoiceTranscriptionError.assetUnavailable
         }
         try await request.downloadAndInstall()
+#else
+        throw VoiceTranscriptionError.unsupportedPlatform
+#endif
     }
 
     // MARK: Implementation
@@ -154,6 +167,8 @@ actor VoiceTranscriptionService {
 
     /// 真正的 SpeechAnalyzer 调用。单独静态实现，便于并发任务组调用。
     private static func analyze(fileURL: URL, locale: Locale) async throws -> VoiceTranscription {
+#if compiler(>=6.2)
+        guard #available(macOS 26.0, *) else { throw VoiceTranscriptionError.unsupportedPlatform }
         guard SpeechTranscriber.isAvailable else { throw VoiceTranscriptionError.assetUnavailable }
         let trimmedPath = fileURL.path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPath.isEmpty, FileManager.default.fileExists(atPath: trimmedPath) else {
@@ -215,7 +230,14 @@ actor VoiceTranscriptionService {
             maxConfidence: collected.maxConfidence,
             duration: duration
         )
+
+#else
+        throw VoiceTranscriptionError.unsupportedPlatform
+#endif
     }
+
+#if compiler(>=6.2)
+    @available(macOS 26.0, *)
 
     private static func makeTranscriber(locale: Locale) -> SpeechTranscriber {
         SpeechTranscriber(
@@ -225,6 +247,7 @@ actor VoiceTranscriptionService {
             attributeOptions: [.transcriptionConfidence]
         )
     }
+#endif
 }
 
 // MARK: - Pure helpers（单测覆盖）

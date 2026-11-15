@@ -80,6 +80,7 @@ coverage/
 # 构建产物 / 运行时依赖（由脚本重新生成或下载）
 # ---------------------------------------------------------------------------
 bridge/onebot
+bridge/libwechat-x64.dylib
 bridge/onebot.dSYM/
 hook/gadget/FridaGadget.dylib
 dist/

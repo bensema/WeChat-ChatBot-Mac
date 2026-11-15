@@ -138,7 +138,7 @@ struct ScheduleRow: View {
 
                 HStack(spacing: 6) {
                     Button(L("编辑")) { onEdit() }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .controlSize(.small)
                     Menu {
                         Button(L("删除任务…"), role: .destructive, action: onDelete)

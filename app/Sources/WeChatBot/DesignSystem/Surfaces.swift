@@ -13,10 +13,7 @@ struct GlassCard<Content: View>: View {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(
-                .regular.tint(tint.opacity(0.045)),
-                in: .rect(cornerRadius: cornerRadius)
-            )
+            .compatibleGlass(tint: tint.opacity(0.045), cornerRadius: cornerRadius)
     }
 }
 
@@ -342,5 +339,53 @@ struct MetricTile: View {
                 .strokeBorder(Theme.hairline, lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+// macOS 15 / Intel fallback; newer SDK builds retain Liquid Glass on macOS 26.
+extension View {
+    @ViewBuilder
+    func compatibleGlass(tint: Color, cornerRadius: CGFloat) -> some View {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            self.glassEffect(.regular.tint(tint), in: .rect(cornerRadius: cornerRadius))
+        } else {
+            self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .overlay(RoundedRectangle(cornerRadius: cornerRadius).fill(tint).allowsHitTesting(false))
+        }
+#else
+        self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius).fill(tint).allowsHitTesting(false))
+#endif
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func compatibleProminentButton() -> some View {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            self.buttonStyle(.glassProminent)
+        } else {
+            self.buttonStyle(.borderedProminent)
+        }
+#else
+        self.buttonStyle(.borderedProminent)
+#endif
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func compatibleGlassButton() -> some View {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            self.buttonStyle(.glass)
+        } else {
+            self.buttonStyle(.bordered)
+        }
+#else
+        self.buttonStyle(.bordered)
+#endif
     }
 }

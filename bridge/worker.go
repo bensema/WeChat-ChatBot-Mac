@@ -329,24 +329,32 @@ func SendWechatMsg(m *SendMsg) {
 		}
 	}
 
+	sendErr = waitForSendCompletion(ctx, currTaskId, m.Type)
+}
+
+func waitForSendCompletion(ctx context.Context, currTaskId int64, msgType string) error {
 	// R3 原生发送：slot13 已把任务交给微信 mars worker，结果不再走 buf2resp 相关通道。
 	// 继续等待只会 15s 后误报 "send timeout"（消息实际已送达），因此直接返回成功。
-	if r3SendMode.Load() && (m.Type == "text" || m.Type == "reply" || m.Type == "pat" || m.Type == "send_voice") {
+	if x64NativeTextSend.Load() && msgType == "text" {
+		Info("x64 原生文本任务已提交，完成状态见 /voice_status", "task_id", currTaskId)
+		return nil
+	}
+	if r3SendMode.Load() && (msgType == "text" || msgType == "reply" || msgType == "pat" || msgType == "send_voice") {
 		Info("R3 模式：任务已提交，跳过 buf2resp 等待", "task_id", currTaskId)
-		return
+		return nil
 	}
 
 	select {
 	case <-ctx.Done():
 		Error("任务执行超时！", "taskId", currTaskId)
-		sendErr = errors.New("send timeout")
+		return errors.New("send timeout")
 	case resp := <-buf2RespChan:
 		if resp.Err != nil {
 			Error("收到buf2resp失败信号", "taskId", currTaskId, "msg_type", resp.MsgType, "err", resp.Err)
-			sendErr = resp.Err
-			return
+			return resp.Err
 		}
 		Info("收到buf2resp完成信号，任务完成", "taskId", currTaskId, "msg_type", resp.MsgType, "data_len", len(resp.Data))
+		return nil
 	}
 }
 

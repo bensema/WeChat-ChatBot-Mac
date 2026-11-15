@@ -228,7 +228,7 @@ struct OnboardingView: View {
                 kind: .warning,
                 title: "开始前的准备",
                 message: Lf(
-                    "需要已安装 arm64 官方微信（%@）。安装 Hook 会修改微信应用包，请先完全退出微信。",
+                    "需要已安装对应架构的官方微信（%@）。安装 Hook 会修改微信应用包，请先完全退出微信。",
                     WeChatVersionSupport.displayList
                 )
             )
@@ -293,10 +293,10 @@ struct OnboardingView: View {
                     )
                 }
                 SettingsDivider()
-                SettingsRow(title: "Gadget", symbol: "link", tint: .secondary) {
+                SettingsRow(title: store.hookStatus.usesLocalAttach ? "连接方式" : "Gadget", symbol: "link", tint: .secondary) {
                     PillLabel(
-                        text: store.hookStatus.gadgetInstalled ? "已安装" : "未安装",
-                        color: store.hookStatus.gadgetInstalled ? Theme.success : Theme.warning
+                        text: store.hookStatus.usesLocalAttach ? "本机直接附加" : (store.hookStatus.gadgetInstalled ? "已安装" : "未安装"),
+                        color: store.hookStatus.hookAvailable ? Theme.success : Theme.warning
                     )
                 }
             }
@@ -337,7 +337,7 @@ struct OnboardingView: View {
                         store.persist()
                         detectWeChat()
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
                 }
             }
@@ -360,18 +360,18 @@ struct OnboardingView: View {
                 } label: {
                     Label(L(isDetecting ? "检测中…" : "检测微信"), systemImage: "magnifyingglass")
                 }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .disabled(isDetecting || isInstalling)
 
                 Button {
                     showRiskConfirm = true
                 } label: {
                     Label(
-                        L(store.hookStatus.gadgetInstalled ? "重新安装 Hook…" : "备份并安装 Hook…"),
+                        L(store.hookStatus.hookAvailable ? "重新安装 Hook…" : "备份并安装 Hook…"),
                         systemImage: "wrench.and.screwdriver"
                     )
                 }
-                .buttonStyle(.glassProminent)
+                .compatibleProminentButton()
                 .tint(Theme.warning)
                 .disabled(isInstalling || store.isHookOperationInFlight || isDetecting || installDisabledReason != nil)
                 .help(L(installDisabledReason ?? "备份官方微信，注入 Frida Gadget 并重新签名"))
@@ -380,11 +380,11 @@ struct OnboardingView: View {
                 Spacer()
             }
 
-            if store.hookStatus.gadgetInstalled {
+            if store.hookStatus.hookAvailable {
                 InlineNotice(
                     kind: .success,
-                    title: "Hook 已安装",
-                    message: "启动机器人后即可连接微信。"
+                    title: store.hookStatus.usesLocalAttach ? "文字收发适配已就绪" : "Hook 已安装",
+                    message: store.hookStatus.usesLocalAttach ? "启动后将直接附加本机微信；原生发送仍待验证。" : "启动机器人后即可连接微信。"
                 )
             } else {
                 Text(L("暂时跳过也可以；之后可在「设置 → Hook」中安装。"))
@@ -471,7 +471,7 @@ struct OnboardingView: View {
                     } label: {
                         Label(L(isTestingAI ? "测试中…" : "保存并测试"), systemImage: "bolt.horizontal")
                     }
-                    .buttonStyle(.glassProminent)
+                    .compatibleProminentButton()
                     .tint(Theme.accent)
                     .disabled(isTestingAI)
 
@@ -481,7 +481,7 @@ struct OnboardingView: View {
                         store.isOnboardingPresented = false
                         store.sidebarSelection = .ai
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
 
                     Spacer()
                 }
@@ -525,8 +525,8 @@ struct OnboardingView: View {
                 SettingsDivider()
                 checklistRow(
                     title: "Hook",
-                    detail: store.hookStatus.gadgetInstalled ? (store.hookStatus.matchedVersion ? "已安装 · 版本已匹配" : "已安装 · 待匹配版本") : "尚未安装（可稍后在「设置 → Hook」安装）",
-                    ready: store.hookStatus.gadgetInstalled,
+                    detail: store.hookStatus.hookAvailable ? (store.hookStatus.matchedVersion ? "已安装 · 版本已匹配" : "已安装 · 待匹配版本") : "尚未安装（可稍后在「设置 → Hook」安装）",
+                    ready: store.hookStatus.hookAvailable,
                     icon: "link"
                 )
                 SettingsDivider()
@@ -595,7 +595,7 @@ struct OnboardingView: View {
             } label: {
                 Label(L("上一步"), systemImage: "chevron.left")
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .disabled(step == 0 || isInstalling)
 
             Spacer()
@@ -618,7 +618,7 @@ struct OnboardingView: View {
                     systemImage: step == stepTitles.count - 1 ? "checkmark" : "chevron.right"
                 )
             }
-            .buttonStyle(.glassProminent)
+            .compatibleProminentButton()
             .tint(Theme.accent)
             .disabled(isInstalling)
             .keyboardShortcut(.defaultAction)
@@ -751,6 +751,7 @@ struct OnboardingView: View {
     }
 
     private var installDisabledReason: String? {
+        if store.hookStatus.usesLocalAttach { return "当前适配使用直接附加，无需安装 Gadget" }
         if commandLineToolsStatus?.isReady != true {
             return "需要安装 Xcode Command Line Tools"
         }

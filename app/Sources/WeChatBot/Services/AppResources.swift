@@ -78,6 +78,21 @@ enum AppResources {
         return trimmed.replacingOccurrences(of: ".", with: "_")
     }
 
+    static var versionConfigSuffix: String {
+#if arch(x86_64)
+        return "x86_64"
+#else
+        return "mac"
+#endif
+    }
+
+    static func usesLocalAttach(version: String, explicitPath: String = "") -> Bool {
+        guard let url = versionConfig(version: version, explicitPath: explicitPath),
+              let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return object["attachMode"] as? String == "local"
+    }
+
     /// `hook/versions/<version_with_underscores>_mac.json`, honouring an explicit path first.
     static func versionConfig(version: String, explicitPath: String = "") -> URL? {
         if !explicitPath.isEmpty {
@@ -86,14 +101,14 @@ enum AppResources {
                 // 仓库自带的版本文件必须匹配当前微信版本；否则（例如用户之前持久化了
                 // 4_1_12_53 的路径后升级微信）静默忽略，回退到自动匹配。
                 let isBundled = versionConfigDirectory.map { expanded.hasPrefix($0.path) } ?? false
-                let expectedName = "\(normalizedVersion(version))_mac.json"
+                let expectedName = "\(normalizedVersion(version))_\(versionConfigSuffix).json"
                 if !isBundled || URL(fileURLWithPath: expanded).lastPathComponent == expectedName {
                     return URL(fileURLWithPath: expanded)
                 }
             }
         }
         guard let directory = versionConfigDirectory, !version.isEmpty else { return nil }
-        let filename = "\(normalizedVersion(version))_mac.json"
+        let filename = "\(normalizedVersion(version))_\(versionConfigSuffix).json"
         let url = directory.appendingPathComponent(filename)
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
     }
@@ -142,7 +157,7 @@ enum AppResources {
         guard let directory = versionConfigDirectory, !version.isEmpty else {
             return "hook/versions/<version>_mac.json"
         }
-        return directory.appendingPathComponent("\(normalizedVersion(version))_mac.json").path
+        return directory.appendingPathComponent("\(normalizedVersion(version))_\(versionConfigSuffix).json").path
     }
 
     static var gadgetDylib: URL? {

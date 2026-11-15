@@ -360,7 +360,7 @@ struct MemoryView: View {
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                     Button(L("刷新")) { refresh() }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .controlSize(.small)
                 }
                 .frame(maxWidth: .infinity)
@@ -610,7 +610,7 @@ struct MemoryView: View {
                     } label: {
                         Label(L("全量记录"), systemImage: "archivebox")
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .disabled(cards.isAggregate || cards.summary?.isGlobal == true)
                     .help(cards.isAggregate
                         ? L("聚合视图没有单一全量记录；请先在左侧选择角色")
@@ -697,7 +697,7 @@ struct MemoryView: View {
                 .lineLimit(1)
             Spacer(minLength: 6)
             Button(L("打开设置")) { showSettings = true }
-                .buttonStyle(.glass)
+                .compatibleGlassButton()
                 .controlSize(.small)
         }
         .padding(.horizontal, 16)
@@ -749,7 +749,7 @@ struct MemoryView: View {
             } label: {
                 Label(L("新增记忆"), systemImage: "plus")
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .disabled(cards.isAggregate)
             .help(cards.isAggregate
                 ? L("先在左侧选择一个角色")

@@ -11,6 +11,7 @@ struct AIModelsView: View {
     @State private var testStates: [String: ProviderTestState] = [:]
     @State private var testTracker = ProviderTestTracker()
     @State private var pendingDelete: AIProvider?
+    @State private var conversationTestProvider: AIProvider?
 
     var body: some View {
         ScrollingPage(title: "AI 模型", subtitle: subtitle) {
@@ -19,7 +20,7 @@ struct AIModelsView: View {
             } label: {
                 Label(L("添加通道…"), systemImage: "plus")
             }
-            .buttonStyle(.glassProminent)
+            .compatibleProminentButton()
             .tint(Theme.accent)
         } content: {
             if store.providers.isEmpty {
@@ -57,6 +58,7 @@ struct AIModelsView: View {
             }
 
             requestPolicyCard
+            conversationTestCard
             visionCard
             securityCard
         }
@@ -78,6 +80,9 @@ struct AIModelsView: View {
                 save(updated, secret: secret)
             }
         }
+        .sheet(item: $conversationTestProvider) { provider in
+            AIConversationTestSheet(provider: provider)
+        }
         .confirmationDialog(
             "删除 AI 通道",
             isPresented: Binding(
@@ -96,6 +101,21 @@ struct AIModelsView: View {
     }
 
     // MARK: Derived
+
+    private var conversationTestCard: some View {
+        SectionCard(title: "AI 对话测试", subtitle: "输入自己的问题，查看完整回复；支持连续对话。", symbol: "bubble.left.and.bubble.right") {
+            HStack {
+                Text("选择任意已保存通道进行测试，无需启动机器人。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Menu("选择通道并测试") {
+                    ForEach(store.providers) { provider in
+                        Button(provider.name) { conversationTestProvider = provider }
+                    }
+                }.disabled(store.providers.isEmpty)
+            }
+        }
+    }
 
     private var subtitle: String {
         guard !store.providers.isEmpty,
@@ -173,7 +193,7 @@ struct AIModelsView: View {
                             setEnabled(provider, true)
                             toast.show(Lf("已启用通道 %@", provider.name), tone: .success, symbol: "power")
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .controlSize(.small)
                     }
                     if diagnosis.needsCredential {
@@ -181,7 +201,7 @@ struct AIModelsView: View {
                             isEditingNew = false
                             editingProvider = provider
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .controlSize(.small)
                     }
                 }
@@ -310,7 +330,7 @@ struct AIModelsView: View {
                                 } label: {
                                     Image(systemName: "arrow.uturn.backward")
                                 }
-                                .buttonStyle(.glass)
+                                .compatibleGlassButton()
                                 .controlSize(.small)
                                 .help(L("跟随通道模型"))
                                 .accessibilityLabel(L("跟随通道模型"))

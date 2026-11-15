@@ -266,7 +266,7 @@ struct MemorySettingsSheet: View {
                 draft = .default
                 toast.show(L("已恢复默认值，点「保存」后生效"), tone: .info, symbol: "arrow.counterclockwise")
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             Spacer()
             Button(L("取消")) { dismiss() }
                 .keyboardShortcut(.cancelAction)

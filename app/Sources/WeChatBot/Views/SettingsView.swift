@@ -382,7 +382,7 @@ struct SettingsView: View {
                         MainWindowRegistry.showOrOpen()
                         store.isOnboardingPresented = true
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
                 }
             }
@@ -669,10 +669,10 @@ struct SettingsView: View {
                 )
                 SettingsDivider()
                 hookStatusRow(
-                    "Gadget",
-                    value: store.hookStatus.gadgetInstalled ? "已安装" : "未安装",
+                    store.hookStatus.usesLocalAttach ? "连接方式" : "Gadget",
+                    value: store.hookStatus.usesLocalAttach ? "本机直接附加" : (store.hookStatus.gadgetInstalled ? "已安装" : "未安装"),
                     symbol: "link",
-                    tint: store.hookStatus.gadgetInstalled ? Theme.success : Theme.warning
+                    tint: store.hookStatus.hookAvailable ? Theme.success : Theme.warning
                 )
                 SettingsDivider()
                 hookStatusRow(
@@ -734,7 +734,7 @@ struct SettingsView: View {
                     Button(L("使用检测路径")) {
                         applyDetectedWeChatPath(alternate)
                     }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
                     .padding(.leading, 2)
                 }
@@ -765,7 +765,7 @@ struct SettingsView: View {
                         } label: {
                             Label(L("刷新状态"), systemImage: "arrow.clockwise")
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .disabled(isWorking || store.isHookOperationInFlight)
 
                         Button {
@@ -773,7 +773,7 @@ struct SettingsView: View {
                         } label: {
                             Label(L("安装 Hook"), systemImage: "wrench.and.screwdriver")
                         }
-                        .buttonStyle(.glassProminent)
+                        .compatibleProminentButton()
                         .tint(Theme.warning)
                         .disabled(isWorking || store.isHookOperationInFlight || installDisabledReason != nil)
                         .help(L(installDisabledReason ?? "备份当前微信并注入 Frida Gadget"))
@@ -783,7 +783,7 @@ struct SettingsView: View {
                         } label: {
                             Label(L("还原官方微信"), systemImage: "arrow.uturn.backward")
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .tint(Theme.danger)
                         .disabled(isWorking || store.isHookOperationInFlight)
                         Spacer()
@@ -821,7 +821,7 @@ struct SettingsView: View {
                                 .font(.system(.caption, design: .monospaced))
                         }
                         Button(L("选择…")) { chooseWeChatApp() }
-                            .buttonStyle(.glass)
+                            .compatibleGlassButton()
                             .controlSize(.small)
                     }
                     FormField(label: "版本配置文件", help: "留空时按微信版本自动匹配 hook/versions 中的配置。") {
@@ -830,7 +830,7 @@ struct SettingsView: View {
                                 .textFieldStyle(.roundedBorder)
                                 .font(.system(.caption, design: .monospaced))
                             Button(L("选择…")) { chooseVersionConfig() }
-                                .buttonStyle(.glass)
+                                .compatibleGlassButton()
                                 .controlSize(.small)
                         }
                     }
@@ -860,7 +860,7 @@ struct SettingsView: View {
                                 MainWindowRegistry.showOrOpen()
                                 store.presentCaptureSetupPrompt()
                             }
-                            .buttonStyle(.glass)
+                            .compatibleGlassButton()
                             .controlSize(.small)
                             .help(L("查看文字/语音/朋友圈发送句柄的捕获步骤"))
 
@@ -913,6 +913,7 @@ struct SettingsView: View {
 
     /// 安装按钮不可用的原因；nil 表示可安装。
     private var installDisabledReason: String? {
+        if store.hookStatus.usesLocalAttach { return "当前适配使用直接附加，无需安装 Gadget" }
         if commandLineToolsStatus?.isReady != true {
             return "需要安装 Command Line Tools"
         }
@@ -972,6 +973,7 @@ struct SettingsView: View {
 
     private var oneBotSettings: some View {
         VStack(alignment: .leading, spacing: Theme.sectionSpacing) {
+            OneBotTestPanel()
             if let notice = store.oneBotRestartNotice {
                 InlineNotice(kind: .warning, title: "配置待生效", message: notice)
             }
@@ -980,6 +982,10 @@ struct SettingsView: View {
                 footer: "默认仅监听 127.0.0.1；修改 Host 会改变监听范围。启动机器人后自动连接，Token 只保存在本机配置中。"
             ) {
                 VStack(alignment: .leading, spacing: 11) {
+                    Toggle("机器人启动时使用内置 bridge", isOn: bind(\.hook.autoStartBridge))
+                        .toggleStyle(.switch)
+                    Text("关闭时连接上述 Host / Port 对应的外部 bridge；单独启动 bridge 按钮仅启动本机内置进程。")
+                        .font(.caption).foregroundStyle(.secondary)
                     HStack(spacing: 12) {
                         FormField(label: "Host") {
                             TextField("127.0.0.1", text: bind(\.onebot.host))
@@ -1021,7 +1027,7 @@ struct SettingsView: View {
                                 Image(systemName: showToken ? "eye.slash" : "eye")
                                     .font(.system(size: 11))
                             }
-                            .buttonStyle(.glass)
+                            .compatibleGlassButton()
                             .help(L(showToken ? "隐藏 Token" : "显示 Token"))
                             .accessibilityLabel(L(showToken ? "隐藏 Token" : "显示 Token"))
                             CopyButton(text: store.settings.onebot.token, accessibilityText: "复制 Token")
@@ -1059,13 +1065,14 @@ struct SettingsView: View {
             InlineNotice(
                 kind: .info,
                 title: "安全",
-                message: "仅监听 127.0.0.1，不暴露到局域网。请勿将端口转发到公网；更换 Token 后需同步更新 bridge。"
+                message: "建议 Host 使用 127.0.0.1。更换端口或 Token 后，先停止再启动 bridge；机器人运行时需重启机器人使配置生效。"
             )
         }
     }
 
     private var wsURL: String {
-        "ws://\(store.settings.onebot.host):\(store.settings.onebot.port)/ws"
+        OneBotClient.Configuration(host: store.settings.onebot.host, port: store.settings.onebot.port)
+            .webSocketURL?.absoluteString ?? "Host 或端口无效"
     }
 
     // MARK: Data
@@ -1124,7 +1131,7 @@ struct SettingsView: View {
                                 Text(L("重新检测微信账号"))
                             }
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         .disabled(store.isSwitchingAccount)
                         Text(store.isSwitchingAccount
                              ? L("正在检测微信登录账号并切换数据…")
@@ -1182,21 +1189,21 @@ struct SettingsView: View {
                         } label: {
                             Label(L("导出配置"), systemImage: "square.and.arrow.up")
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
 
                         Button {
                             NSWorkspace.shared.open(AppPaths.supportDirectory)
                         } label: {
                             Label(L("打开数据目录"), systemImage: "folder")
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
 
                         Button {
                             reloadConfiguration()
                         } label: {
                             Label(L("重新加载配置"), systemImage: "arrow.clockwise")
                         }
-                        .buttonStyle(.glass)
+                        .compatibleGlassButton()
                         Spacer()
                     }
                     Text(L("完整备份请复制数据目录；微信官方备份由 Hook 安装流程创建。"))
@@ -1253,7 +1260,7 @@ struct SettingsView: View {
                         HStack(spacing: 6) {
                             PillLabel(text: Lf("版本 %@", appVersion), color: Theme.accent)
                             PillLabel(text: "Build \(buildNumber)", color: .secondary)
-                            PillLabel(text: "macOS 26+", color: Theme.info)
+                            PillLabel(text: "macOS 15+", color: Theme.info)
                         }
                     }
                     Spacer()
@@ -1823,7 +1830,7 @@ private struct LogBufferMaintenanceRow: View {
             Button(L("清空日志")) {
                 isConfirmingClear = true
             }
-            .buttonStyle(.glass)
+            .compatibleGlassButton()
             .controlSize(.small)
             .disabled(store.logs.isEmpty)
             .confirmationDialog(

@@ -396,7 +396,7 @@ struct WorkingHoursEditor: View {
                     message: "当前时段包含非法分钟或星期，启用后不会生效。"
                 )
                 Button(L("修复设置")) { repair() }
-                    .buttonStyle(.glass)
+                    .compatibleGlassButton()
                     .controlSize(.small)
             }
         }
