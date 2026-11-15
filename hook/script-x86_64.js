@@ -416,7 +416,8 @@ function x64SendText(taskId, receiver, content, atUser, protoHex) {
         return "fail";
     }
 }
-// Media, contact directory and Moments stay unavailable until their own ABI is verified.
+// Media and Moments stay unavailable until their own ABI is verified. Contact DB reads use
+// the separate CommonCrypto/SQLCipher helper concatenated by bridge/loadJs (no WeChat RVA).
 function unavailable() { return "off"; }
 function x64Status() {
     if (x64CompletionHelper) {
@@ -433,8 +434,8 @@ rpc.exports = {
     r3VoiceDiag:x64Status,
     r3Status:x64Status,
     r3RestoreSeed:unavailable, r3RestoreVoiceSeed:unavailable, r3RestoreVoiceHeader:unavailable,
-    r3VoiceHeader:function() { return ""; }, setDbKeys:function() { return 0; },
-    getContactDirectory:function() { return JSON.stringify({ok:false,reason:"x64_contact_directory_unverified"}); },
+    r3VoiceHeader:function() { return ""; }, setDbKeys:setDbKeys,
+    getContactDirectory:getContactDirectory, getDbKeyStatus:getDbKeyStatus,
     snsStatus:function() { return JSON.stringify({ok:false,enabled:false,error:"x64_sns_unverified"}); },
     triggerSendTextMessage:x64SendText, triggerSendReplyMessage:unavailable,
     triggerSendImgMessage:unavailable, triggerSendVideoMessage:unavailable,

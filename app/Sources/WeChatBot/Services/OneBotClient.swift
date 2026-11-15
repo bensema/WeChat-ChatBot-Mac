@@ -247,6 +247,8 @@ final class OneBotClient: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     private var contactDirectoryReceivedOK = false
     private var contactDirectoryFirstRequestAt: Date?
     private let httpSession: URLSession
+    /// 图片下载可等待微信自然分片/触发回调，不能受普通 API 的 40 秒资源超时限制。
+    private let imageFetchSession: URLSession
 
     private let maxSeenMessages = 1024
     private let echoWindow: TimeInterval = 20
@@ -258,6 +260,11 @@ final class OneBotClient: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         httpConfig.timeoutIntervalForResource = configuration.requestTimeout * 2
         httpConfig.waitsForConnectivity = false
         self.httpSession = URLSession(configuration: httpConfig)
+        let imageConfig = URLSessionConfiguration.ephemeral
+        imageConfig.timeoutIntervalForRequest = max(configuration.requestTimeout, 65)
+        imageConfig.timeoutIntervalForResource = max(configuration.requestTimeout, 65)
+        imageConfig.waitsForConnectivity = false
+        self.imageFetchSession = URLSession(configuration: imageConfig)
         super.init()
     }
 
@@ -664,18 +671,22 @@ final class OneBotClient: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     /// 只负责 `POST /fetch_image` 的一次请求与响应解析；队列/去重/失败重试策略由
     /// `ImageFetcher` 负责。`messageID` 必须是 bridge 事件里的原始 OneBot
     /// `message_id`，不能用 App 内的 `ChatMessage.id`（`ob-<message_id>`）。
-    func fetchImage(messageID: String) async throws -> String {
+    func fetchImage(messageID: String, rawMessage: String? = nil) async throws -> String {
         let trimmed = messageID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw OneBotError.sendFailed("消息 ID 为空") }
         let config = activeConfiguration
         guard let base = config.httpBaseURL else {
             throw OneBotError.invalidURL("http://\(config.host):\(config.port)")
         }
-        var request = try Self.fetchImageRequest(baseURL: base, token: config.token, messageID: trimmed)
-        // bridge 侧下载预算是 12 秒；给 HTTP 留出足够的余量，且不短于 30 秒。
-        request.timeoutInterval = max(config.requestTimeout, 30)
+        var request = try Self.fetchImageRequest(
+            baseURL: base,
+            token: config.token,
+            messageID: trimmed,
+            rawMessage: rawMessage
+        )
+        request.timeoutInterval = max(config.requestTimeout, 55)
 
-        let (data, response) = try await httpSession.data(for: request)
+        let (data, response) = try await imageFetchSession.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw OneBotError.badResponse("非 HTTP 响应")
         }
@@ -683,7 +694,12 @@ final class OneBotClient: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     }
 
     /// Builds the `POST /fetch_image` request. Pure function so it can be unit-tested.
-    static func fetchImageRequest(baseURL: URL, token: String, messageID: String) throws -> URLRequest {
+    static func fetchImageRequest(
+        baseURL: URL,
+        token: String,
+        messageID: String,
+        rawMessage: String? = nil
+    ) throws -> URLRequest {
         guard let url = URL(string: "/fetch_image", relativeTo: baseURL) else {
             throw OneBotError.invalidURL(baseURL.absoluteString)
         }
@@ -693,7 +709,11 @@ final class OneBotClient: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         if !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["message_id": messageID], options: [])
+        var body: [String: String] = ["message_id": messageID]
+        if let rawMessage, !rawMessage.isEmpty {
+            body["raw_message"] = rawMessage
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         return request
     }
 
@@ -1188,7 +1208,9 @@ enum OneBotEventParser {
         let messageType = string(raw["message_type"]) ?? (groupID == nil ? "private" : "group")
         let rawMessage = string(raw["raw_message"]) ?? string(raw["rawMessage"]) ?? ""
 
-        let segments = normalizeAppmsgSegments(parseSegments(raw["message"]), rawMessage: rawMessage)
+        let parsedSegments = parseSegments(raw["message"])
+        let appmsgSegments = normalizeAppmsgSegments(parsedSegments, rawMessage: rawMessage)
+        let segments = normalizeVoIPCallSegments(appmsgSegments, rawMessage: rawMessage)
         // 群系统消息（如拍一拍 appmsg）可能把 group_id 同时写进 self_id/user_id，
         // 不能仅凭两者相等就判定为「自己发出」。
         var isSelf = !selfID.isEmpty && selfID == userID
@@ -1274,6 +1296,20 @@ enum OneBotEventParser {
             replaced = true
             return .text(appmsg.text)
         }
+    }
+
+    /// 4.1.15 exposes call status notifications as XML inside an ordinary text segment.
+    /// Keep the raw event for diagnostics, while storing readable text for previews and AI.
+    private static func normalizeVoIPCallSegments(
+        _ segments: [OneBotSegment],
+        rawMessage: String
+    ) -> [OneBotSegment] {
+        guard let index = segments.firstIndex(where: { $0.type == "text" }) else { return segments }
+        let text = segments[index].text ?? ""
+        guard let call = WeChatVoIPCall.parse(rawMessage) ?? WeChatVoIPCall.parse(text) else { return segments }
+        var result = segments
+        result[index] = .text(call.summary)
+        return result
     }
 
     static func parseSegments(_ value: Any?) -> [OneBotSegment] {

@@ -4,7 +4,8 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
 const config = JSON.parse(fs.readFileSync(path.join(__dirname, '../versions/4_1_15_35_x86_64.json')));
-let script = fs.readFileSync(path.join(__dirname, '../script-x86_64.js'), 'utf8');
+const contactModule = fs.readFileSync(path.join(__dirname, '../contact-directory-x64.js'), 'utf8');
+let script = contactModule + '\n' + fs.readFileSync(path.join(__dirname, '../script-x86_64.js'), 'utf8');
 for (const [key, value] of Object.entries(config)) script = script.split('{{.'+key+'}}').join(value);
 
 // A sparse Frida memory fixture exercises the emitted OneBot events and identity guards.

@@ -73,6 +73,16 @@ final class ImageFetcher {
         return true
     }
 
+    /// 重新排队已经失败过的图片。队列中或正在请求的任务不会被重复启动。
+    @discardableResult
+    func retry(_ request: Request) -> Bool {
+        guard !queuedIDs.contains(request.chatMessageID),
+              inFlight?.chatMessageID != request.chatMessageID else { return false }
+        attemptedSet.remove(request.chatMessageID)
+        attempted.removeAll { $0 == request.chatMessageID }
+        return enqueue(request)
+    }
+
     /// 取消所有未完成的请求。`worker` 的 `fetch` 返回后不会再触发回调；
     /// 已处理记录保留，避免取消后又被同一消息重新入队。
     func cancelAll() {

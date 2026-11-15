@@ -298,7 +298,8 @@ Content-Type: application/json
 - 处理流程：按 `message_id` 查登记 → 并发槽（上限 2）→ 对 mid/thumb 候选逐个触发微信
   CDN 下载 → 等待下载分片稳定 → 用 XML 的 `aeskey` AES-ECB 解密 → 校验图片魔数 →
   写入 `<media_dir>/<yyyy-MM-dd>/<md5>.<ext>`（缩略图回退加 `-thumb` 后缀）→ 返回
-  `file://` 路径。单次总预算约 12 秒；成功/失败都会移除该 `message_id` 的登记（不重复下载）。
+  `file://` 路径。单次总预算约 45 秒；成功后移除登记，临时失败保留至 30 分钟以支持重试。
+  登记过期后 App 可在带鉴权的请求中附带该消息的 `raw_message`，bridge 会重新解析并登记一次。
 - 图片只写入 `-media_dir`（`filepath.Rel` 校验，拒绝目录穿越），绝不写入 app bundle；
   日志不打印 aeskey / CDN key / XML。
 - 该接口**不会**主动下载：该会话的「获取图片」关闭时 App 不会调用，因此不会发起新的下载

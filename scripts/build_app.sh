@@ -4,6 +4,7 @@
 # 用法：
 #   bash scripts/build_app.sh                         # 构建并打包 dist/WeChat AI.app
 #   SWIFT_DISABLE_SANDBOX=1 bash scripts/build_app.sh # 受限沙箱（CI / Agent）关闭 SwiftPM sandbox
+#   BUILD_OUTPUT_DIR=/tmp/wechat-ai-test bash scripts/build_app.sh # 输出到隔离目录
 #
 # 前置：可用的 swift 工具链（Swift 6.1+ / CLT）与 app/。bridge/onebot、Frida Gadget 或
 # hook/versions 缺失时只打印 WARNING，仍会产出 App（对应运行期功能可能不可用）。
@@ -12,7 +13,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="WeChat AI"
 BUNDLE_ID="com.gusionw.wechatai"
-DIST_DIR="$ROOT_DIR/dist"
+DIST_DIR="${BUILD_OUTPUT_DIR:-$ROOT_DIR/dist}"
 BUNDLE="$DIST_DIR/$APP_NAME.app"
 CONFIGURATION="${BUILD_CONFIGURATION:-release}"
 case "$CONFIGURATION" in debug|release) ;; *) echo "invalid BUILD_CONFIGURATION" >&2; exit 1 ;; esac
@@ -98,6 +99,7 @@ elif [ -f "$ROOT_DIR/bridge/script.js" ]; then
   cp "$ROOT_DIR/bridge/script.js" "$RES/bridge/script.js"
 fi
 cp "$ROOT_DIR/hook/script-x86_64.js" "$RES/bridge/script-x86_64.js"
+cp "$ROOT_DIR/hook/contact-directory-x64.js" "$RES/bridge/contact-directory-x64.js"
 if [[ "$HOST_ARCH" == "x86_64" ]]; then
   [ -f "$ROOT_DIR/bridge/libwechat-x64.dylib" ] || fail "缺少 x64 completion helper；先运行 scripts/build_bridge.sh"
   cp "$ROOT_DIR/bridge/libwechat-x64.dylib" "$RES/bridge/libwechat-x64.dylib"

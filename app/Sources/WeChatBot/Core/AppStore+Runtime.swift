@@ -1322,14 +1322,22 @@ final class RuntimeCoordinator {
         store.imageFetcher.configure(
             fetch: { [weak self] bridgeMessageID in
                 guard let client = self?.oneBotClient else { throw OneBotError.notRunning }
-                return try await client.fetchImage(messageID: bridgeMessageID)
+                guard let self,
+                      let message = await self.imageMessage(messageID: "ob-\(bridgeMessageID)")
+                else { throw OneBotError.badResponse("图片消息已不存在") }
+                return try await client.fetchImage(
+                    messageID: bridgeMessageID,
+                    rawMessage: Self.rawMessage(from: message.rawJSON ?? "")
+                )
             },
             onFetched: { [weak self] request, path in
+                self?.store.imageFetchFailures.remove(request.chatMessageID)
                 await self?.applyFetchedImage(request: request, path: path)
             },
             onFailed: { [weak self] request, reason in
                 // 失败只记 debug，避免网络/图片异常时刷屏；不重试由队列保证。
                 self?.pendingImageFetchIDs.remove(request.chatMessageID)
+                self?.store.imageFetchFailures.insert(request.chatMessageID)
                 self?.log(.debug, "Media", "图片获取失败（\(request.chatMessageID)）：\(reason)")
             }
         )
@@ -2427,6 +2435,7 @@ final class RuntimeCoordinator {
         inFlightConversations.removeAll()
         visionAttempted.removeAll()
         pendingImageFetchIDs.removeAll()
+        store.imageFetchFailures.removeAll()
         pendingVoiceFetchIDs.removeAll()
         pendingVoiceTranscriptionIDs.removeAll()
         voiceTranscriptionAttempted.removeAll()
@@ -3293,12 +3302,21 @@ final class RuntimeCoordinator {
         }
     }
 
+    func retryImageFetch(messageID: String) async {
+        guard let message = await imageMessage(messageID: messageID),
+              queueImageFetch(message, retry: true) else {
+            log(.debug, "Media", "图片重试未排队（\(messageID)）")
+            return
+        }
+        log(.info, "Media", "已重新排队获取图片（\(message.conversationID)）")
+    }
+
     // MARK: 识图（视觉模型）
 
     /// 生成回复前按需识别上下文里的近期图片（2026-10-23）。
     ///
     /// 只处理「入站图片 + 最近 10 分钟 + 尚无描述」，一次回复最多 2 张；图片还没落盘时
-    /// 最多等 8 秒（只等本轮已入队的图片）。识别结果写回消息与数据库，之后
+    /// 最多等 50 秒，期间可重新登记并获取原图。识别结果写回消息与数据库，之后
     /// `ChatEngine.promptText` 会以 `[图片：描述]` 参与文本上下文。
     /// 任何失败只写日志，不阻断回复。
     private func prepareVisionDescriptions(conversation: Conversation, incoming: ChatMessage) async {
@@ -3318,8 +3336,7 @@ final class RuntimeCoordinator {
             return
         }
         let prompt = settings.ai.vision?.promptText ?? VisionSettings.defaultPrompt
-        // 整个识图阶段共用一个等待预算：避免 2 张图各等 8 秒。
-        let imageWaitDeadline = Date().addingTimeInterval(8)
+        let imageWaitDeadline = Date().addingTimeInterval(50)
 
         for candidate in candidates {
             if Task.isCancelled { return }
@@ -3358,19 +3375,24 @@ final class RuntimeCoordinator {
             path = existing
         } else if let existing = mediaPath(conversationID: conversation.id, messageID: message.id) {
             path = existing
-        } else if canWaitForImage,
-                  pendingImageFetchIDs.contains(message.id),
-                  let imageWaitDeadline {
+        } else if canWaitForImage, let imageWaitDeadline {
             let remaining = imageWaitDeadline.timeIntervalSinceNow
             guard remaining > 0 else {
                 log(.debug, "Vision", "识图跳过：图片获取超时（\(message.id)）")
                 return nil
             }
-            path = await waitForImagePath(
-                conversationID: conversation.id,
-                messageID: message.id,
-                timeout: remaining
-            )
+            if !pendingImageFetchIDs.contains(message.id) {
+                _ = queueImageFetch(message, retry: true)
+            }
+            if pendingImageFetchIDs.contains(message.id) {
+                path = await waitForImagePath(
+                    conversationID: conversation.id,
+                    messageID: message.id,
+                    timeout: remaining
+                )
+            } else {
+                path = nil
+            }
         } else {
             path = nil
         }
@@ -3471,15 +3493,62 @@ final class RuntimeCoordinator {
         timeout: TimeInterval
     ) async -> String? {
         let deadline = Date().addingTimeInterval(max(0, timeout))
+        var retriedAfterFailure = false
         while !Task.isCancelled {
             if let path = mediaPath(conversationID: conversationID, messageID: messageID) {
                 return path
             }
-            guard pendingImageFetchIDs.contains(messageID) else { return nil }
+            if !pendingImageFetchIDs.contains(messageID) {
+                guard !retriedAfterFailure,
+                      let message = store.messages[conversationID]?.first(where: { $0.id == messageID }),
+                      queueImageFetch(message, retry: true) else { return nil }
+                retriedAfterFailure = true
+            }
             guard Date() < deadline else { return nil }
             try? await Task.sleep(for: .milliseconds(100))
         }
         return nil
+    }
+
+    private func imageMessage(messageID: String) async -> ChatMessage? {
+        if let message = store.messages.values.lazy.compactMap({ $0.first { $0.id == messageID } }).first {
+            return message
+        }
+        return try? await memory.message(id: messageID)
+    }
+
+    private static func rawMessage(from eventJSON: String) -> String? {
+        guard let data = eventJSON.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        if let value = object["raw_message"] as? String { return value }
+        if let value = object["rawMessage"] as? String { return value }
+        if let nested = object["data"] as? [String: Any] {
+            return (nested["raw_message"] as? String) ?? (nested["rawMessage"] as? String)
+        }
+        return nil
+    }
+
+    @discardableResult
+    private func queueImageFetch(_ message: ChatMessage, retry: Bool) -> Bool {
+        guard message.kind == .image, message.direction == .incoming,
+              message.id.hasPrefix("ob-") else { return false }
+        let conversation = store.conversations.first { $0.id == message.conversationID }
+        guard let conversation,
+              conversation.effectiveImageFetchEnabled(global: store.settings.bot.fetchImagesEnabled)
+        else { return false }
+        let bridgeMessageID = String(message.id.dropFirst(3))
+        let request = ImageFetcher.Request(
+            bridgeMessageID: bridgeMessageID,
+            chatMessageID: message.id,
+            conversationID: message.conversationID
+        )
+        let enqueued = retry ? store.imageFetcher.retry(request) : store.imageFetcher.enqueue(request)
+        if enqueued {
+            pendingImageFetchIDs.insert(message.id)
+            store.imageFetchFailures.remove(message.id)
+        }
+        return enqueued
     }
 
     /// 把识图描述写回内存消息与数据库；消息可能已被裁剪/删除，此时按 ID 从库里补写。
@@ -5774,6 +5843,12 @@ extension AppStore {
         let coordinator = RuntimeRegistry.coordinator(for: self)
         await coordinator.bootstrapIfNeeded()
         await coordinator.retryVoiceTranscription(messageID: messageID)
+    }
+
+    func retryImageFetch(messageID: String) async {
+        let coordinator = RuntimeRegistry.coordinator(for: self)
+        await coordinator.bootstrapIfNeeded()
+        await coordinator.retryImageFetch(messageID: messageID)
     }
 
     /// 刷新 bridge `/voice_status`（语音发送句柄 / 登录稳定倒计时），供「机器人 → 语音」展示与决策门禁。

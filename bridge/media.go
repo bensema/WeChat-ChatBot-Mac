@@ -47,10 +47,10 @@ const (
 	imageFetchConcurrency = 2
 	// imageFetchSemaphoreWait 是排队拿下载槽的最长等待时间。
 	imageFetchSemaphoreWait = 10 * time.Second
-	// imageFetchTotalBudget 是单次 /fetch_image 的总预算（App 侧 HTTP 超时 30s）。
-	imageFetchTotalBudget = 12 * time.Second
+	// imageFetchTotalBudget gives WeChat enough time to finish natural image downloads.
+	imageFetchTotalBudget = 45 * time.Second
 	// imageCandidateBudget 是单个候选（mid / thumb）的下载预算上限。
-	imageCandidateBudget = 8 * time.Second
+	imageCandidateBudget = 40 * time.Second
 	// imageDownloadStableAfter 是分片停止增长多久后视为下载完成。
 	imageDownloadStableAfter = 1200 * time.Millisecond
 	// imageDownloadPollEvery 是轮询下载分片的间隔。
@@ -68,6 +68,7 @@ var (
 	// pendingImageJobs 保存 message_id → *incomingImageJob 的下载元数据。
 	// 用 sync.Map 是因为 hook 回调与 HTTP handler 在不同 goroutine。
 	pendingImageJobs sync.Map
+	imageFetchClaims sync.Map
 
 	// imageFetchSemaphore 限制同时进行的图片下载数量。
 	imageFetchSemaphore = make(chan struct{}, imageFetchConcurrency)
@@ -491,7 +492,7 @@ func prunePendingImageJobs() {
 }
 
 // fetchIncomingImage 触发微信下载一条入站图片，解密并保存后返回本地路径。
-// 总预算 12s；并发上限 2；先 mid 后 thumb（docs/bridge.md §3.4）。
+// 总预算 45s；并发上限 2；先 mid 后 thumb（docs/bridge.md §3.4）。
 func fetchIncomingImage(messageID string) (string, error) {
 	messageID = strings.TrimSpace(messageID)
 	if messageID == "" {
@@ -510,25 +511,18 @@ func fetchIncomingImage(messageID string) (string, error) {
 	}
 
 	deadline := time.Now().Add(imageFetchTotalBudget)
+	if _, loaded := imageFetchClaims.LoadOrStore(messageID, struct{}{}); loaded {
+		return "", errImageFetchBusy
+	}
+	defer imageFetchClaims.Delete(messageID)
 
 	// 全局并发上限 2：拿不到槽最多等 10s。
 	select {
 	case imageFetchSemaphore <- struct{}{}:
 		defer func() { <-imageFetchSemaphore }()
 	case <-time.After(imageFetchSemaphoreWait):
-		pendingImageJobs.Delete(messageID)
 		Warn("图片获取失败", "message_id", messageID, "reason", errImageFetchBusy)
 		return "", errImageFetchBusy
-	}
-
-	// 抢占该消息的下载任务：同一 message_id 的并发请求只有一个真正下载。
-	claimed, ok := pendingImageJobs.LoadAndDelete(messageID)
-	if !ok {
-		return "", errImageJobNotFound
-	}
-	job, ok = claimed.(*incomingImageJob)
-	if !ok || job == nil {
-		return "", errImageJobNotFound
 	}
 
 	mediaRoot, err := resolvedMediaDir()
@@ -555,6 +549,7 @@ func fetchIncomingImage(messageID string) (string, error) {
 		}
 		path, err := fetchImageCandidate(job, candidate, mediaRoot, tempDir, deadline)
 		if err == nil {
+			pendingImageJobs.Delete(messageID)
 			return path, nil
 		}
 		lastErr = err

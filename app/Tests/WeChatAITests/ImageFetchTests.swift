@@ -101,6 +101,21 @@ final class ImageFetchTests: XCTestCase {
         XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
     }
 
+    func testFetchImageRequestCanReRegisterImageFromRawMessage() throws {
+        let base = try XCTUnwrap(URL(string: "http://127.0.0.1:58080"))
+        let xml = #"<msg><img aeskey="secret"/></msg>"#
+        let request = try OneBotClient.fetchImageRequest(
+            baseURL: base,
+            token: "test-token",
+            messageID: "123456",
+            rawMessage: xml
+        )
+        let body = try XCTUnwrap(request.httpBody)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+        XCTAssertEqual(object["message_id"], "123456")
+        XCTAssertEqual(object["raw_message"], xml)
+    }
+
     // MARK: - 4. parseImageFetchResponse
 
     func testParseImageFetchResponseDecodesPercentEncodedFilePath() throws {
@@ -221,6 +236,44 @@ final class ImageFetchTests: XCTestCase {
         // 失败过的 chatMessageID 不再重试。
         XCTAssertFalse(fetcher.enqueue(request))
         XCTAssertEqual(failures.count, 1)
+    }
+
+    @MainActor
+    func testFetcherCanRetryFailedImageAndDoesNotDuplicateInFlightRequest() async throws {
+        let fetcher = ImageFetcher()
+        let firstIdle = IdleSignal()
+        let secondIdle = IdleSignal()
+        var attempts = 0
+        var fetched: [String] = []
+        var failures = 0
+        fetcher.configure(
+            fetch: { _ in
+                attempts += 1
+                if attempts == 1 { throw OneBotError.badResponse("不完整") }
+                return "/tmp/retried.jpg"
+            },
+            onFetched: { request, path in fetched.append("\(request.chatMessageID):\(path)") },
+            onFailed: { _, _ in failures += 1 },
+            onIdle: {
+                if attempts == 1 { firstIdle.signal() } else { secondIdle.signal() }
+            }
+        )
+        let request = ImageFetcher.Request(
+            bridgeMessageID: "retry-1",
+            chatMessageID: "ob-retry-1",
+            conversationID: "wxid_test"
+        )
+
+        XCTAssertTrue(fetcher.enqueue(request))
+        try await firstIdle.wait()
+        XCTAssertEqual(failures, 1)
+        XCTAssertTrue(fetcher.retry(request))
+        XCTAssertFalse(fetcher.retry(request), "正在重试时不能重复入队")
+        try await secondIdle.wait()
+
+        XCTAssertEqual(attempts, 2)
+        XCTAssertEqual(fetched, ["ob-retry-1:/tmp/retried.jpg"])
+        XCTAssertEqual(failures, 1)
     }
 
     @MainActor

@@ -55,6 +55,7 @@ func setupMediaTestEnv(t *testing.T) string {
 	config.MediaDir = root
 	mediaDir = ""
 	clearSyncMap(&pendingImageJobs)
+	clearSyncMap(&imageFetchClaims)
 	clearSyncMap(&userID2FileMsgMap)
 	myWechatId = "wxid_test"
 
@@ -62,6 +63,7 @@ func setupMediaTestEnv(t *testing.T) string {
 		config.MediaDir = oldConfigMediaDir
 		mediaDir = oldMediaDir
 		clearSyncMap(&pendingImageJobs)
+		clearSyncMap(&imageFetchClaims)
 		clearSyncMap(&userID2FileMsgMap)
 		triggerIncomingImageDownload = oldTrigger
 		myWechatId = oldSelfID
@@ -810,6 +812,29 @@ func TestFetchImageHandler(t *testing.T) {
 		assertNoSecrets(t, body)
 		if !strings.Contains(body, `"status":"failed"`) || !strings.Contains(body, "微信未接受图片下载请求") {
 			t.Fatalf("失败响应内容错误: %q", body)
+		}
+		if _, ok := pendingImageJobs.Load("500003"); !ok {
+			t.Fatal("临时下载失败后应保留登记，供后续重试")
+		}
+	})
+
+	t.Run("登记过期后可通过原始 XML 重新登记并获取", func(t *testing.T) {
+		setupMediaTestEnv(t)
+		plain := syntheticImageJPEG(48)
+		stubImageDownload(t, plain, time.Now())
+		body, err := json.Marshal(map[string]string{
+			"message_id":  "500004",
+			"raw_message": testImageXML(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp := doRequest(t, http.MethodPost, endpoint, auth, string(body))
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("status = %d, want 200; body=%s", resp.StatusCode, readBody(t, resp))
+		}
+		if _, ok := pendingImageJobs.Load("500004"); ok {
+			t.Fatal("成功后应移除图片登记")
 		}
 	})
 }

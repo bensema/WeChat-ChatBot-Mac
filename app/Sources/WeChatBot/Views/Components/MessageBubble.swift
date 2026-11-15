@@ -15,6 +15,8 @@ struct MessageBubble: View, Equatable {
     var voiceTranscriptVisible: Bool = true
     /// 「转写失败 · 重试」；nil 表示不可重试（如历史消息/离线查看）。
     var onRetryVoice: ((ChatMessage) -> Void)?
+    var imageFetchFailed = false
+    var onRetryImage: ((ChatMessage) -> Void)?
 
     /// Loaded once per media path instead of on every body evaluation: the previous
     /// computed `NSImage(contentsOfFile:)` re-read the file from disk whenever the
@@ -28,14 +30,96 @@ struct MessageBubble: View, Equatable {
         lhs.message == rhs.message
             && lhs.showsSender == rhs.showsSender
             && lhs.voiceTranscriptVisible == rhs.voiceTranscriptVisible
+            && lhs.imageFetchFailed == rhs.imageFetchFailed
     }
 
     var body: some View {
-        if message.direction == .system || message.kind == .system {
+        if let call = voipCall {
+            voipCallRow(call)
+        } else if message.direction == .system || message.kind == .system {
             SystemNoticeRow(message: message)
         } else {
             bubbleRow
         }
+    }
+
+    private var voipCall: WeChatVoIPCall? {
+        WeChatVoIPCall.parse(message.rawJSON) ?? WeChatVoIPCall.parse(message.text)
+    }
+
+    private func voipCallRow(_ call: WeChatVoIPCall) -> some View {
+        HStack(alignment: .bottom, spacing: 7) {
+            if message.isOutgoing {
+                Spacer(minLength: 70)
+            } else {
+                AvatarView(title: message.displaySender, kind: .direct, size: 26)
+                    .padding(.bottom, 2)
+            }
+
+            VStack(alignment: message.isOutgoing ? .trailing : .leading, spacing: 2) {
+                if showsSender, !message.isOutgoing {
+                    Text(message.displaySender)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 3)
+                }
+                HStack(spacing: 8) {
+                    Image(systemName: callSymbol(call))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(callTint(call))
+                        .frame(width: 20, height: 20)
+                        .background(callTint(call).opacity(0.12), in: Circle())
+                    Text(call.summary)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                        .frame(minWidth: 118, alignment: .leading)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(message.isOutgoing ? Theme.accent.opacity(0.10) : Color.primary.opacity(0.045),
+                            in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(message.isOutgoing ? Theme.accent.opacity(0.18) : Theme.hairline, lineWidth: 1)
+                }
+                footer
+            }
+
+            if !message.isOutgoing {
+                Spacer(minLength: 70)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityDescription(call: call))
+        .contextMenu {
+            Button(L("复制通话记录")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(call.summary, forType: .string)
+            }
+            Button(L("复制消息 ID")) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(message.id, forType: .string)
+            }
+        }
+    }
+
+    private func callSymbol(_ call: WeChatVoIPCall) -> String {
+        switch call.result {
+        case .duration:
+            message.isOutgoing ? "phone.arrow.up.right.fill" : "phone.arrow.down.left.fill"
+        case .message(let text) where text.localizedCaseInsensitiveContains("取消") || text.localizedCaseInsensitiveContains("未接"):
+            "phone.down.fill"
+        case .message, .unknown:
+            message.isOutgoing ? "phone.arrow.up.right.fill" : "phone.arrow.down.left.fill"
+        }
+    }
+
+    private func callTint(_ call: WeChatVoIPCall) -> Color {
+        if case .message(let text) = call.result,
+           text.localizedCaseInsensitiveContains("取消") || text.localizedCaseInsensitiveContains("未接") {
+            return Theme.warning
+        }
+        return Theme.accent
     }
 
     // MARK: Bubble
@@ -266,7 +350,23 @@ struct MessageBubble: View, Equatable {
             .frame(maxWidth: 240, maxHeight: 220)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         } else {
-            mediaPlaceholder(symbol: "photo", title: "图片", width: 168)
+            VStack(spacing: 6) {
+                mediaPlaceholder(
+                    symbol: imageFetchFailed ? "photo.badge.exclamationmark" : "photo",
+                    title: imageFetchFailed ? "图片获取失败" : "图片",
+                    width: 168
+                )
+                if !message.isOutgoing, let onRetryImage {
+                    Button {
+                        onRetryImage(message)
+                    } label: {
+                        Label(L("重新获取图片"), systemImage: "arrow.clockwise")
+                            .font(.caption2.weight(.medium))
+                    }
+                    .buttonStyle(.plain)
+                    .help(L("从微信重新下载这张图片"))
+                }
+            }
         }
     }
 
@@ -477,6 +577,12 @@ struct MessageBubble: View, Equatable {
         }
         parts.append(UIFormat.stamp(message.timestamp))
         return parts.joined(separator: L10n.listSeparator)
+    }
+
+    private func accessibilityDescription(call: WeChatVoIPCall) -> String {
+        let sender = message.isOutgoing ? L("我发送") : Lf("%@ 发送", message.displaySender)
+        return [sender, call.summary, UIFormat.stamp(message.timestamp)]
+            .joined(separator: L10n.listSeparator)
     }
 }
 

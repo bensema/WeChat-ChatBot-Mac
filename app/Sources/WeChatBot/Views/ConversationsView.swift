@@ -391,15 +391,7 @@ struct ConversationsView: View {
                                 DateSeparator(date: message.timestamp)
                                     .equatable()
                             }
-                            MessageBubble(
-                                message: message,
-                                showsSender: conversation.kind == .group,
-                                voiceTranscriptVisible: store.settings.bot.voiceSettings.showTranscriptInBubble,
-                                onRetryVoice: { failed in
-                                    Task { await store.retryVoiceTranscription(messageID: failed.id) }
-                                }
-                            )
-                            .equatable()
+                            messageBubble(message, conversation: conversation)
                         }
                     }
                     Color.clear
@@ -426,6 +418,24 @@ struct ConversationsView: View {
                 scheduleScrollToBottom(proxy, delay: .zero)
             }
         }
+    }
+
+    private func messageBubble(_ message: ChatMessage, conversation: Conversation) -> some View {
+        let retryVoice: (ChatMessage) -> Void = { failed in
+            Task { await store.retryVoiceTranscription(messageID: failed.id) }
+        }
+        let retryImage: (ChatMessage) -> Void = { failed in
+            Task { await store.retryImageFetch(messageID: failed.id) }
+        }
+        return MessageBubble(
+            message: message,
+            showsSender: conversation.kind == .group,
+            voiceTranscriptVisible: store.settings.bot.voiceSettings.showTranscriptInBubble,
+            onRetryVoice: retryVoice,
+            imageFetchFailed: store.imageFetchFailures.contains(message.id),
+            onRetryImage: retryImage
+        )
+        .equatable()
     }
 
     private func composer(_ conversation: Conversation) -> some View {

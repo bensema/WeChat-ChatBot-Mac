@@ -258,20 +258,19 @@ func loadJs() {
 	if err != nil {
 		Fatal("读取脚本失败", "err", err)
 	}
-
-	tmpl, err := template.New("fridaScript").Parse(string(codeTemplate))
-	if err != nil {
-		Fatal("解析模板失败", "err", err)
-		return
+	var contactCode []byte
+	if wechatHookConf["arch"] == "x64" {
+		contactCode, err = os.ReadFile("./contact-directory-x64.js")
+		if err != nil {
+			Fatal("读取 x64 通讯录模块失败", "err", err)
+		}
 	}
-
-	var buf bytes.Buffer
-	err = tmpl.Execute(&buf, wechatHookConf)
+	code, err := renderHookScript(wechatHookConf, codeTemplate, contactCode)
 	if err != nil {
 		Fatal("执行模板失败", "err", err)
 	}
 
-	script, err := session.CreateScript(buf.String())
+	script, err := session.CreateScript(code)
 	if err != nil {
 		Fatal("创建脚本失败", "err", err)
 	}
@@ -525,4 +524,19 @@ func loadJs() {
 			}
 		}
 	}
+}
+
+func renderHookScript(conf map[string]interface{}, codeTemplate, contactCode []byte) (string, error) {
+	if conf["arch"] == "x64" {
+		codeTemplate = append(append(append([]byte(nil), contactCode...), '\n'), codeTemplate...)
+	}
+	tmpl, err := template.New("fridaScript").Parse(string(codeTemplate))
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, conf); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }

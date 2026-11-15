@@ -12,7 +12,8 @@ Intel 与 AMD 的目标指令集均为 x86_64；本次实际验证硬件是 Inte
 - x64 接收解码的私聊、长 UTF-8、群成员、群 @、自消息、去重及错误镜像拒绝测试通过。
 - **真实消息接收与原生文本发送已验证**。手机发往文件传输助手的“Intel适配测试”经真实 Hook → Go bridge → 认证 OneBot WebSocket 两次匹配成功，打开会话时接收计数增至 31。`ready` 只表示 Hook 安装成功，接收需结合计数与事件。
 - x64 原生任务向自己的文件传输助手发送 `Intel bridge 自检`，手机确认收到；补齐 completion 后，经 Go HTTP → Frida → 原生 service 发送 `Intel bridge 回调验证`，任务 286 完成，`lastErrorType=0` / `lastErrorCode=0`，微信进程稳定。首次 HTTP 测试发现旧 ARM `buf2resp` 等待导致误报超时，已让 x64 文本任务按原生提交结果返回。
-- 当前 x64 配置标记 `text-send-receive-verified`、`enableSend=true`；不复用 arm64 的 R3/媒体/通讯录地址。文字可用不代表媒体、引用回复、通讯录、朋友圈等能力已适配。
+- 当前 x64 配置标记 `enableSend=true`、`contactDirectory=true`；不复用 arm64 的 R3/媒体/朋友圈地址。通讯录复用 CommonCrypto 导出函数捕获与通用 SQLCipher 页解密逻辑，不依赖 `wechat.dylib` 静态 RVA，因此不需要 Hopper 重新定位微信原生入口。2026-11-15 本机验证实际 `contact.db` 解密成功，返回 2,736 个联系人、23 个群；密钥只在微信进程内存、bridge 内存和现有受限 key cache 流程中处理。
+- x64 通讯录模块为 `hook/contact-directory-x64.js`，由 bridge 在主 x64 Hook 前拼接加载。App/bridge 更新并重启后，连接会立即安装 `CCCrypt` / `CCCryptorCreate` / `CCKeyDerivationPBKDF` 捕获 Hook；首次无缓存时须在 Hook 安装后打开通讯录/聊天，让微信触发 key 使用。未捕获密钥时返回 `key_missing`，不代表函数偏移错误。`x64_contact_directory_unverified` 是旧版 bridge Hook 的占位返回值。
 
 ## Hopper MCP 确认的镜像与地址
 

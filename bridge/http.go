@@ -224,7 +224,8 @@ func sendHandler(w http.ResponseWriter, r *http.Request) {
 
 // fetchImageRequest 是 POST /fetch_image 的请求体。
 type fetchImageRequest struct {
-	MessageID string `json:"message_id"`
+	MessageID  string `json:"message_id"`
+	RawMessage string `json:"raw_message"`
 }
 
 // fetchImageHandler 处理 App 的入站图片获取请求（docs/bridge.md §3.4）：
@@ -267,6 +268,13 @@ func fetchImageHandler(w http.ResponseWriter, r *http.Request) {
 		})
 		Error("图片获取请求参数缺失")
 		return
+	}
+	if _, ok := pendingImageJobs.Load(req.MessageID); !ok && req.RawMessage != "" {
+		registerIncomingImage(map[string]interface{}{
+			"msg_type":    3,
+			"message_id":  req.MessageID,
+			"raw_message": req.RawMessage,
+		})
 	}
 
 	path, err := fetchIncomingImage(req.MessageID)

@@ -67,3 +67,14 @@ for script_name in script.js script-x86_64.js; do
     || { echo "Hook copy differs: $script_name; run scripts/sync_hook_script.sh" >&2; exit 1; }
   (( QUIET )) || echo "✅ hook/${script_name} 与 bridge/${script_name} 一致"
 done
+
+contact_src="${ROOT_DIR}/hook/contact-directory-x64.js"
+contact_dst="${ROOT_DIR}/bridge/contact-directory-x64.js"
+[[ -f "$contact_src" ]] || { echo "Missing x64 contact module: $contact_src" >&2; exit 1; }
+if [[ "$MODE" == "sync" ]]; then
+  cp -p "$contact_src" "$contact_dst"
+  chmod 644 "$contact_dst"
+fi
+[[ -f "$contact_dst" ]] && [[ "$(sha256_file "$contact_src")" == "$(sha256_file "$contact_dst")" ]] \
+  || { echo "Hook copy differs: contact-directory-x64.js; run scripts/sync_hook_script.sh" >&2; exit 1; }
+(( QUIET )) || echo "✅ hook/contact-directory-x64.js 与 bridge/contact-directory-x64.js 一致"

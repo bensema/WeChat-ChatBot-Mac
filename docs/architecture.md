@@ -249,7 +249,7 @@ bridge 推送的 JSON（`WechatMessage`，字段可能缺省）：
   默认开启），入口为会话详情 → 菜单 →「媒体」→「获取图片」；关闭时完全不请求，只显示「图片」占位。
   只处理实时入站图片，历史消息不回填。
 - 识图（按需）：自动回复触发且「AI 模型 → 识图模型」启用时，App 对上下文内最近 10 分钟、最多 2 张
-  未识别入站图片生成描述：文件未落盘先等 `POST /fetch_image`（最多 8 秒），再以多模态 `image_url`
+  未识别入站图片生成描述：文件未落盘先等 `POST /fetch_image`（最多 50 秒），再以多模态 `image_url`
   调用识图通道；描述写入 `ChatMessage.imageDescription`（DB 列 `messages.image_description`），提示词
   以 `[图片：<描述>]` 参与文本上下文，图片本体不进入提示词；失败只写 debug 日志，未启用或图片无法获取
   时行为与旧版一致。该链路尚未真机验证。引用本轮图片时按 `refermsg` 的 `svrid` 找回原图
@@ -281,7 +281,7 @@ bridge 推送的 JSON（`WechatMessage`，字段可能缺省）：
   返回 `{"status":"ok"}` 或 5xx/`{"status":"failed","error":...}`。图片/语音/视频/文件用
   `{"type":"image","data":{"file":"base64://..."}}` 等数组元素；单条消息过长时 App 自行分段。
 - **入站图片获取**：`POST http://127.0.0.1:58080/fetch_image`，Header `Authorization: Bearer <token>`，
-  body `{"message_id":"<OneBot message_id>"}`；bridge 按需触发微信 CDN 下载（单次总预算约 12 秒），
+  body `{"message_id":"<OneBot message_id>","raw_message":"<图片 XML，可选>"}`；bridge 按需触发微信 CDN 下载（单次总预算约 45 秒），
   成功返回 `{"status":"ok","data":{"file":"file:///.../accounts/<当前账号>/media/<date>/<name>.jpg","message_id":"..."}}`，
   失败返回 `{"status":"failed","error":"中文原因"}`；未登记/已过期 400，下载失败 502。App 只在该会话
   「获取图片」开启、消息是图片、`mediaPath`/`mediaURL` 为空时请求（会话覆盖 → 旧全局默认 → true），

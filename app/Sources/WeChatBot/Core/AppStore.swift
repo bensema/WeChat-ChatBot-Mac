@@ -22,6 +22,7 @@ final class AppStore {
     var stats = BotStats()
     var conversations: [Conversation] = []
     var messages: [String: [ChatMessage]] = [:]
+    var imageFetchFailures: Set<String> = []
 
     // 记忆 v2（每会话角色卡）：记忆页数据源。
     /// 全部角色摘要（会话标题/人格名/计数），由 `CharacterStore.listCharacters` 生成。
