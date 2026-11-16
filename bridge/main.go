@@ -33,6 +33,10 @@ func str(m map[string]interface{}, key string) string {
 }
 
 func main() {
+	if err := ensureFridaRuntimeCompatibility(); err != nil {
+		fmt.Fprintln(os.Stderr, "无法配置 Frida 运行时兼容模式:", err)
+		os.Exit(1)
+	}
 	initFlag()
 	initLogger()
 	// 上游默认 token 是公开常量；未显式 -token 时任何本机进程都能调用发送接口。
@@ -103,7 +107,7 @@ func main() {
 // listenAndServe 封装默认 mux 的 HTTP 监听，便于单测覆盖「端口被占用」。
 // 返回错误时 main 必须以非 0 退出：App 依据退出码区分正常停止与异常退出。
 func listenAndServe(addr string) error {
-	return http.ListenAndServe(addr, nil)
+	return http.ListenAndServe(addr, fridaSafeHTTPHandler(http.DefaultServeMux))
 }
 
 // normalizeListenAddr 把 -receive_host 归一化为可监听地址，并报告是否仅回环。

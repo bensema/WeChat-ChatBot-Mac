@@ -191,6 +191,12 @@ App 强制把 `-image_path` / `-media_dir` 指向当前账号目录（忽略用�
   入站事件与发送回执立即写出，不做节流。事件级日志为 Debug 级，只记录字节长度与
   最多 256 字符的截断预览；默认 `-log_level=info` 下不产生每事件日志（排障时显式
   `-log_level=debug`），Warn/Error 不受影响。
+- Intel/macOS 启动时自动启用 `GODEBUG=asyncpreemptoff=1`：Frida 17.8.0 的
+  x86_64 静态库内嵌另一套 Go 1.24.3 `suntime`，与 bridge 的 Go 1.25.14
+  共享进程信号，可能在空闲时反复进入错误的信号处理器并吃满一个 CPU 核心。
+  bridge 必要时以相同 PID/参数/cwd/输出管道重新 exec 一次，使两套运行时均从
+  启动环境关闭信号异步抢占；其它 `GODEBUG` 选项保留。该兼容模式保留协作调度，
+  不改变消息收发间隔，也不对 arm64 应用此限制。
 - 上游启动时会把完整 token 打印到 stdout（`OnebotToken <token>`），鉴权风险见 §7。
 - 按 `Ctrl-C`/SIGTERM 时上游会清理 Frida script/session/device 后退出。
 - Hook 脚本的诊断/实验环境变量（如 `HOOK_DEBUG=1`）由 `run_bridge.sh` 原样透传，
@@ -276,6 +282,10 @@ Content-Type: application/json
 - HTTP handler 会把消息交给发送 worker 并等待结果；`conn_type=websocket` 不影响 HTTP 发送。
 - 额外的未鉴权调试端点：`/test_ws`（向当前 WS 连接写任意 body）以及
   `net/http/pprof` 注册的 `/debug/pprof/*`。它们只在 127.0.0.1 上暴露，详见 §7。
+  **Intel 例外**：`/debug/pprof/profile` 返回 503，因为进程级 SIGPROF 同样会
+  触发双 Go 运行时冲突。排查 Intel 原生 CPU 热点请使用
+  `sample <onebot-PID> 5 10 -file /tmp/onebot.sample.txt`；goroutine 等非 CPU
+  诊断端点仍可用。不要对该进程调用 `runtime/pprof.StartCPUProfile`。
 
 ### 3.4 入站图片获取接口
 

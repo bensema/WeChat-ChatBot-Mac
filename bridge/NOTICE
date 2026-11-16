@@ -59,6 +59,17 @@ main.go
   以及发布时段/每日上限/最小间隔配置）与 `registerSNSHandlers()`（注册
   `/sns/status|timeline|detail|media|sync|post|comment|like|objectop`）。
   未启用时 handler 返回 404；SNS 请求全部在 bridge 内编解码（protobuf 不经过 hook）。
+  2026-11-16：启动时执行 Intel Frida 双 Go 运行时兼容检查；HTTP 服务通过
+  兼容层阻止不安全的 Intel SIGPROF CPU 采样端点。
+
+frida_runtime.go / frida_runtime_test.go
+  2026-11-16 新增：macOS amd64 的 Frida 17.8.0 静态库含 Go 1.24.3
+  suntime，与 bridge Go 1.25.14 的信号处理/TLS 不兼容。缺少兼容设置时
+  以相同 PID、参数、cwd、管道重新 exec，令两套运行时从启动起读取
+  GODEBUG=asyncpreemptoff=1；保留其它 GODEBUG 设置，防止重复 exec。
+  仅 Intel 禁用 /debug/pprof/profile，避免 SIGPROF 再次触发信号冲突；
+  其余 HTTP/WS 和诊断端点保持原行为。测试覆盖设置合并、幂等、平台/路由
+  隔离，以及真实子进程 exec 后 PID/cwd/参数/输出管道的保留。
 
 logger.go
   日志文件路径改为由 `-log_file` 指定，并在启动时创建所在目录。
