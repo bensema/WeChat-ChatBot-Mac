@@ -311,17 +311,20 @@ struct ContactDirectoryEntry: Codable, Hashable, Sendable {
     var display: String
     var nickname: String?
     var remark: String?
+    var avatarURL: String?
 
-    init(display: String, nickname: String? = nil, remark: String? = nil) {
+    init(display: String, nickname: String? = nil, remark: String? = nil, avatarURL: String? = nil) {
         self.display = display
         self.nickname = nickname
         self.remark = remark
+        self.avatarURL = avatarURL
     }
 
     private enum CodingKeys: String, CodingKey {
         case display
         case nickname
         case remark
+        case avatarURL = "avatar_url"
     }
 
     init(from decoder: Decoder) throws {
@@ -330,6 +333,7 @@ struct ContactDirectoryEntry: Codable, Hashable, Sendable {
         display = (try? container.decodeIfPresent(String.self, forKey: .display)) ?? ""
         nickname = try? container.decodeIfPresent(String.self, forKey: .nickname)
         remark = try? container.decodeIfPresent(String.self, forKey: .remark)
+        avatarURL = try? container.decodeIfPresent(String.self, forKey: .avatarURL)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -337,6 +341,7 @@ struct ContactDirectoryEntry: Codable, Hashable, Sendable {
         try container.encode(display, forKey: .display)
         try container.encodeIfPresent(nickname, forKey: .nickname)
         try container.encodeIfPresent(remark, forKey: .remark)
+        try container.encodeIfPresent(avatarURL, forKey: .avatarURL)
     }
 }
 
@@ -413,6 +418,22 @@ struct ContactDirectorySnapshot: Codable, Hashable, Sendable {
         guard !name.isEmpty else { return nil }
         guard !ConversationName.isPlaceholderTitle(name, conversationID: id, kind: kind) else { return nil }
         return name
+    }
+
+    /// 会话头像：群聊取群头像，私聊和公众号取联系人头像。
+    func avatarURL(for id: String, kind: ConversationKind) -> URL? {
+        let entry = kind == .group ? groups[id] : users[id]
+        guard let rawURL = entry?.avatarURL?.trimmingCharacters(in: .whitespacesAndNewlines),
+              var components = URLComponents(string: rawURL),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased() else { return nil }
+        if scheme == "http" {
+            guard ["wx.qlogo.cn", "p.qpic.cn", "wework.qpic.cn"].contains(host) else { return nil }
+            components.scheme = "https"
+        } else if scheme != "https" {
+            return nil
+        }
+        return components.url
     }
 }
 

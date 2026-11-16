@@ -43,7 +43,9 @@ function fixture(options = {}) {
   Buffer.from(config.messageFinalizerSignature.split(' ').map(x=>parseInt(x,16))).copy(signature);
   if(options.badSignature)signature[0]^=1;
   const context={rpc:{},Process:{arch:options.arch||'x64',enumerateModules:()=>[{name:'wechat.dylib',path:'/Applications/WeChat.app'+config.modulePathSuffix,base,size:0xa3e1000}]},
-    Interceptor:{attach:(_,callbacks)=>{listener=callbacks;}},console:{log(){}},send:e=>events.push(e)};
+    Interceptor:{attach:(target,callbacks)=>{
+      if(target.equals(base.add(BigInt(config.messageFinalizerAddr))))listener=callbacks;
+    }},console:{log(){}},send:e=>events.push(e)};
   vm.runInNewContext(script,context);
   function stringAt(object,data,offset,value) {
     const bytes=Buffer.from(value,'utf8');

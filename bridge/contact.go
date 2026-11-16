@@ -39,10 +39,11 @@ var (
 
 // ContactEntry 是 hook 返回的单个联系人/群条目（与 hook JSON 字段一致）。
 type ContactEntry struct {
-	Display  string `json:"display"`
-	Nickname string `json:"nickname,omitempty"`
-	Remark   string `json:"remark,omitempty"`
-	Alias    string `json:"alias,omitempty"`
+	Display   string `json:"display"`
+	Nickname  string `json:"nickname,omitempty"`
+	Remark    string `json:"remark,omitempty"`
+	Alias     string `json:"alias,omitempty"`
+	AvatarURL string `json:"avatar_url,omitempty"`
 	// Members 只出现在 groups 条目：群成员 wxid → 群昵称。
 	// 同一个人在群里的显示名可能与通讯录昵称/备注不同，群聊场景优先使用。
 	Members map[string]ContactEntry `json:"members,omitempty"`

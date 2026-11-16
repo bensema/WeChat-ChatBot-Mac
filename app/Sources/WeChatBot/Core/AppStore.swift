@@ -23,6 +23,8 @@ final class AppStore {
     var conversations: [Conversation] = []
     var messages: [String: [ChatMessage]] = [:]
     var imageFetchFailures: Set<String> = []
+    /// 当前账号最近一次可用的联系人目录（含头像地址），供会话界面按 wxid 显示头像。
+    var contactDirectorySnapshot: ContactDirectorySnapshot?
 
     // 记忆 v2（每会话角色卡）：记忆页数据源。
     /// 全部角色摘要（会话标题/人格名/计数），由 `CharacterStore.listCharacters` 生成。

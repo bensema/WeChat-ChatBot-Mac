@@ -15,11 +15,11 @@ final class ContactDirectoryTests: XCTestCase {
           "ok": true,
           "generated_at": 1760000000000,
           "users": {
-            "wxid_test_friend": { "display": "张三", "nickname": "张三", "remark": "老张" },
-            "gh_test_official": { "display": "示例公众号" }
+            "wxid_test_friend": { "display": "张三", "nickname": "张三", "remark": "老张", "avatar_url": "https://wx.example/friend.jpg" },
+            "gh_test_official": { "display": "示例公众号", "avatar_url": "https://wx.example/official.jpg" }
           },
           "groups": {
-            "123456@chatroom": { "display": "项目群", "nickname": "项目群", "remark": "" }
+            "123456@chatroom": { "display": "项目群", "nickname": "项目群", "remark": "", "avatar_url": "https://wx.example/group.jpg" }
           }
         }
         """
@@ -31,6 +31,7 @@ final class ContactDirectoryTests: XCTestCase {
         XCTAssertEqual(snapshot.users["wxid_test_friend"]?.display, "张三")
         XCTAssertEqual(snapshot.users["wxid_test_friend"]?.nickname, "张三")
         XCTAssertEqual(snapshot.users["wxid_test_friend"]?.remark, "老张")
+        XCTAssertEqual(snapshot.users["wxid_test_friend"]?.avatarURL, "https://wx.example/friend.jpg")
         XCTAssertEqual(snapshot.groups["123456@chatroom"]?.display, "项目群")
         XCTAssertFalse(snapshot.isEmpty)
     }
@@ -98,6 +99,46 @@ final class ContactDirectoryTests: XCTestCase {
         XCTAssertNil(snapshot.displayName(for: "wxid_test_blank", kind: .direct))
         XCTAssertNil(snapshot.displayName(for: "wxid_test_other_wxid", kind: .direct))
         XCTAssertNil(snapshot.displayName(for: "999999@chatroom", kind: .group))
+    }
+
+    func testAvatarURLUsesConversationKindAndRejectsUnsafeSchemes() {
+        let snapshot = ContactDirectorySnapshot(
+            ok: true,
+            users: [
+                "wxid_test_friend": ContactDirectoryEntry(
+                    display: "张三", avatarURL: "https://wx.example/friend.jpg"
+                ),
+                "gh_test_official": ContactDirectoryEntry(
+                    display: "示例公众号", avatarURL: "https://wx.example/official.jpg"
+                ),
+                "wxid_test_file": ContactDirectoryEntry(
+                    display: "文件地址", avatarURL: "file:///tmp/avatar.jpg"
+                ),
+                "wxid_test_http": ContactDirectoryEntry(
+                    display: "旧版头像", avatarURL: "http://wx.qlogo.cn/mmhead/test/0"
+                ),
+                "wxid_test_external_http": ContactDirectoryEntry(
+                    display: "非微信图床", avatarURL: "http://images.example/avatar.jpg"
+                )
+            ],
+            groups: [
+                "123456@chatroom": ContactDirectoryEntry(
+                    display: "项目群", avatarURL: "https://wx.example/group.jpg"
+                )
+            ]
+        )
+
+        XCTAssertEqual(snapshot.avatarURL(for: "wxid_test_friend", kind: .direct)?.absoluteString,
+                       "https://wx.example/friend.jpg")
+        XCTAssertEqual(snapshot.avatarURL(for: "gh_test_official", kind: .official)?.absoluteString,
+                       "https://wx.example/official.jpg")
+        XCTAssertEqual(snapshot.avatarURL(for: "123456@chatroom", kind: .group)?.absoluteString,
+                       "https://wx.example/group.jpg")
+        XCTAssertNil(snapshot.avatarURL(for: "wxid_test_friend", kind: .group))
+        XCTAssertNil(snapshot.avatarURL(for: "wxid_test_file", kind: .direct))
+        XCTAssertEqual(snapshot.avatarURL(for: "wxid_test_http", kind: .direct)?.absoluteString,
+                       "https://wx.qlogo.cn/mmhead/test/0")
+        XCTAssertNil(snapshot.avatarURL(for: "wxid_test_external_http", kind: .direct))
     }
 
     // MARK: WS 契约
@@ -239,10 +280,17 @@ final class ContactDirectoryTests: XCTestCase {
             ok: true,
             generatedAt: generatedAt,
             users: [
-                "wxid_test_friend": ContactDirectoryEntry(display: "张三", nickname: "张三", remark: "老张"),
-                "gh_test_official": ContactDirectoryEntry(display: "示例公众号")
+                "wxid_test_friend": ContactDirectoryEntry(
+                    display: "张三", nickname: "张三", remark: "老张",
+                    avatarURL: "https://wx.example/friend.jpg"
+                ),
+                "gh_test_official": ContactDirectoryEntry(
+                    display: "示例公众号", avatarURL: "https://wx.example/official.jpg"
+                )
             ],
-            groups: ["123456@chatroom": ContactDirectoryEntry(display: "项目群", nickname: "项目群")]
+            groups: ["123456@chatroom": ContactDirectoryEntry(
+                display: "项目群", nickname: "项目群", avatarURL: "https://wx.example/group.jpg"
+            )]
         )
         try await store.replaceContactDirectory(snapshot)
 
@@ -255,7 +303,10 @@ final class ContactDirectoryTests: XCTestCase {
         XCTAssertEqual(cached.users["wxid_test_friend"]?.display, "张三")
         XCTAssertEqual(cached.users["wxid_test_friend"]?.nickname, "张三")
         XCTAssertEqual(cached.users["wxid_test_friend"]?.remark, "老张")
+        XCTAssertEqual(cached.users["wxid_test_friend"]?.avatarURL, "https://wx.example/friend.jpg")
+        XCTAssertEqual(cached.users["gh_test_official"]?.avatarURL, "https://wx.example/official.jpg")
         XCTAssertEqual(cached.groups["123456@chatroom"]?.display, "项目群")
+        XCTAssertEqual(cached.groups["123456@chatroom"]?.avatarURL, "https://wx.example/group.jpg")
         // kind 决定条目落在 users 还是 groups。
         XCTAssertNil(cached.users["123456@chatroom"])
         XCTAssertNil(cached.groups["wxid_test_friend"])
@@ -318,6 +369,20 @@ final class ContactDirectoryTests: XCTestCase {
             """
             INSERT INTO settings (key, value, updated_at) VALUES ('legacy.key', 'legacy.value', \(now));
             """,
+            """
+            CREATE TABLE contact_directory (
+                username TEXT PRIMARY KEY NOT NULL,
+                display TEXT NOT NULL,
+                nickname TEXT,
+                remark TEXT,
+                kind TEXT NOT NULL,
+                updated_at REAL NOT NULL
+            );
+            """,
+            """
+            INSERT INTO contact_directory (username, display, kind, updated_at)
+            VALUES ('wxid_test_cached', '缓存联系人', 'direct', \(now));
+            """,
             "PRAGMA user_version=4;"
         ])
 
@@ -331,6 +396,10 @@ final class ContactDirectoryTests: XCTestCase {
         XCTAssertEqual(conversations.first?.title, "测试好友")
         let legacyValue = try await store.setting(key: "legacy.key")
         XCTAssertEqual(legacyValue, "legacy.value")
+        let migratedSnapshot = try await store.loadContactDirectory()
+        let migratedDirectory = try XCTUnwrap(migratedSnapshot)
+        XCTAssertEqual(migratedDirectory.users["wxid_test_cached"]?.display, "缓存联系人")
+        XCTAssertNil(migratedDirectory.users["wxid_test_cached"]?.avatarURL)
 
         // 新表可用：写入/读取目录缓存后旧会话标题不被改动。
         try await store.replaceContactDirectory(ContactDirectorySnapshot(

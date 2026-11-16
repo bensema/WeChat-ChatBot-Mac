@@ -11,12 +11,15 @@ import SwiftUI
 struct MessageBubble: View, Equatable {
     let message: ChatMessage
     var showsSender: Bool = true
+    var senderAvatarURL: URL? = nil
     /// 是否在无语音气泡里展示转写（`BotSettings.voice.showTranscriptInBubble`）。
     var voiceTranscriptVisible: Bool = true
     /// 「转写失败 · 重试」；nil 表示不可重试（如历史消息/离线查看）。
     var onRetryVoice: ((ChatMessage) -> Void)?
     var imageFetchFailed = false
     var onRetryImage: ((ChatMessage) -> Void)?
+    var onFetchHighResolutionImage: (@MainActor (ChatMessage) async throws -> URL)?
+    var onPreviewImage: ((ChatImagePreviewSelection) -> Void)?
 
     /// Loaded once per media path instead of on every body evaluation: the previous
     /// computed `NSImage(contentsOfFile:)` re-read the file from disk whenever the
@@ -24,11 +27,13 @@ struct MessageBubble: View, Equatable {
     @State private var localImage: NSImage?
     /// Path that `localImage` was decoded from, so a changed path reloads.
     @State private var loadedImagePath: String?
+    @State private var imagePreview: ChatImagePreviewSelection?
 
     /// Manual comparison: `localImage` is view-local state and must not participate.
     static func == (lhs: MessageBubble, rhs: MessageBubble) -> Bool {
         lhs.message == rhs.message
             && lhs.showsSender == rhs.showsSender
+            && lhs.senderAvatarURL == rhs.senderAvatarURL
             && lhs.voiceTranscriptVisible == rhs.voiceTranscriptVisible
             && lhs.imageFetchFailed == rhs.imageFetchFailed
     }
@@ -52,7 +57,10 @@ struct MessageBubble: View, Equatable {
             if message.isOutgoing {
                 Spacer(minLength: 70)
             } else {
-                AvatarView(title: message.displaySender, kind: .direct, size: 26)
+                AvatarView(
+                    title: message.displaySender, kind: .direct, size: 26,
+                    imageURL: senderAvatarURL, isRoundedSquare: true
+                )
                     .padding(.bottom, 2)
             }
 
@@ -129,7 +137,10 @@ struct MessageBubble: View, Equatable {
             if message.isOutgoing {
                 Spacer(minLength: 70)
             } else {
-                AvatarView(title: message.displaySender, kind: .direct, size: 26)
+                AvatarView(
+                    title: message.displaySender, kind: .direct, size: 26,
+                    imageURL: senderAvatarURL, isRoundedSquare: true
+                )
                     .padding(.bottom, 2)
             }
 
@@ -181,6 +192,20 @@ struct MessageBubble: View, Equatable {
                         NSPasteboard.general.setString(description, forType: .string)
                     }
                 }
+                if message.kind == .image, let path = message.mediaPath, !path.isEmpty {
+                    Button(L("保存图片…")) {
+                        saveImage(atPath: path)
+                    }
+                } else if message.kind == .image, let remoteImageURL {
+                    Button(L("保存图片…")) {
+                        saveImage(from: remoteImageURL)
+                    }
+                }
+                if let imageURL = finderFeed?.imageURL {
+                    Button(L("保存封面…")) {
+                        saveImage(from: imageURL)
+                    }
+                }
                 if message.kind == .voice, let transcript = voiceTranscript {
                     Button(L("复制语音转写")) {
                         NSPasteboard.general.clearContents()
@@ -192,6 +217,46 @@ struct MessageBubble: View, Equatable {
                     NSPasteboard.general.setString(message.id, forType: .string)
                 }
             }
+    }
+
+    private func openImagePreview(
+        _ url: URL,
+        title: String,
+        loadOriginal: (@MainActor () async throws -> URL)? = nil
+    ) {
+        let selection = ChatImagePreviewSelection(url: url, title: title, loadOriginal: loadOriginal)
+        if let onPreviewImage {
+            onPreviewImage(selection)
+        } else {
+            imagePreview = selection
+        }
+    }
+
+    private var loadHighResolutionImage: (@MainActor () async throws -> URL)? {
+        guard let onFetchHighResolutionImage,
+              message.kind == .image,
+              message.id.hasPrefix("ob-"),
+              let xml = rawImageXML,
+              xml.range(of: "<img", options: .caseInsensitive) != nil,
+              (xml.range(of: "cdnhdurl=", options: .caseInsensitive) != nil
+                || xml.range(of: "cdnmidimgurl=", options: .caseInsensitive) != nil),
+              xml.range(of: "aeskey=", options: .caseInsensitive) != nil
+        else { return nil }
+        return { try await onFetchHighResolutionImage(message) }
+    }
+
+    private var rawImageXML: String? {
+        guard let rawJSON = message.rawJSON,
+              let data = rawJSON.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return message.rawJSON?.hasPrefix("<") == true ? message.rawJSON : nil }
+        if let raw = root["raw_message"] as? String ?? root["rawMessage"] as? String {
+            return raw
+        }
+        if let nested = root["data"] as? [String: Any] {
+            return nested["raw_message"] as? String ?? nested["rawMessage"] as? String
+        }
+        return nil
     }
 
     private var shape: RoundedRectangle {
@@ -221,9 +286,13 @@ struct MessageBubble: View, Equatable {
             } else {
                 switch message.kind {
                 case .text:
-                    Text(message.text.isEmpty ? " " : message.text)
-                        .font(.body)
-                        .lineSpacing(3)
+                    if let finderFeed {
+                        finderFeedContent(feed: finderFeed)
+                    } else {
+                        Text(message.text.isEmpty ? " " : message.text)
+                            .font(.body)
+                            .lineSpacing(3)
+                    }
                 case .image:
                     imageContent
                 case .voice:
@@ -319,21 +388,120 @@ struct MessageBubble: View, Equatable {
         return value
     }
 
+    private var finderFeed: WeChatAppmsg.FinderFeed? {
+        guard let appmsg = WeChatAppmsg.parse(eventJSON: message.rawJSON),
+              appmsg.type == 51 || appmsg.type == 53 else { return nil }
+        return appmsg.finderFeed
+    }
+
+    @ViewBuilder
+    private func finderFeedContent(feed: WeChatAppmsg.FinderFeed) -> some View {
+        let coverSize = finderFeedCoverSize(feed)
+        VStack(alignment: .leading, spacing: 7) {
+            if let imageURL = feed.imageURL {
+                Button {
+                    openImagePreview(imageURL, title: L("视频号封面"))
+                } label: {
+                    AsyncImage(url: imageURL) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFill()
+                        } else if phase.error != nil {
+                            mediaPlaceholder(symbol: "play.rectangle", title: "视频号封面不可用", width: coverSize.width)
+                        } else {
+                            ZStack {
+                                Color.primary.opacity(0.08)
+                                ProgressView().controlSize(.small)
+                            }
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .help(L("点击放大查看"))
+                .accessibilityLabel(L("点击放大查看"))
+                .frame(width: coverSize.width, height: coverSize.height)
+                .overlay {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(11)
+                        .background(.black.opacity(0.55), in: Circle())
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            Text(feed.isLive ? L("视频号直播") : L("视频号"))
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if !feed.nickname.isEmpty {
+                Text(feed.nickname)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+            }
+            if !feed.description.isEmpty {
+                Text(feed.description)
+                    .font(.caption)
+                    .lineLimit(4)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if feed.nickname.isEmpty && feed.description.isEmpty {
+                Text(message.text.isEmpty ? L("视频号分享") : message.text)
+                    .font(.callout)
+                    .lineLimit(4)
+            }
+        }
+        .frame(maxWidth: 220, alignment: .leading)
+    }
+
+    private func finderFeedCoverSize(_ feed: WeChatAppmsg.FinderFeed) -> CGSize {
+        let maxWidth: CGFloat = 220
+        let maxHeight: CGFloat = 280
+        let ratio = CGFloat(feed.imageAspectRatio ?? (16.0 / 9.0))
+        let width = min(maxWidth, maxHeight * ratio)
+        return CGSize(width: width, height: width / ratio)
+    }
+
     @ViewBuilder
     private var imageContentBody: some View {
         if let localImage {
-            Image(nsImage: localImage)
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: 240, maxHeight: 220)
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Button {
+                guard let path = message.mediaPath, !path.isEmpty else { return }
+                let url = URL(fileURLWithPath: path)
+                openImagePreview(
+                    url,
+                    title: url.lastPathComponent,
+                    loadOriginal: loadHighResolutionImage
+                )
+            } label: {
+                Image(nsImage: localImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 240, maxHeight: 220)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .help(L("点击放大查看"))
+            .accessibilityLabel(L("点击放大查看"))
         } else if let remoteImageURL {
             AsyncImage(url: remoteImageURL) { phase in
                 switch phase {
                 case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFit()
+                    Button {
+                    openImagePreview(
+                        remoteImageURL,
+                        title: remoteImageURL.lastPathComponent,
+                        loadOriginal: loadHighResolutionImage
+                    )
+                    } label: {
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 240, maxHeight: 220)
+                    }
+                    .buttonStyle(.plain)
+                    .help(L("点击放大查看"))
+                    .accessibilityLabel(L("点击放大查看"))
+                    .frame(maxWidth: 240, maxHeight: 220)
+                    .contentShape(Rectangle())
                 case .failure:
                     mediaPlaceholder(symbol: "photo.badge.exclamationmark", title: "图片加载失败", width: 168)
                 case .empty:
@@ -356,7 +524,7 @@ struct MessageBubble: View, Equatable {
                     title: imageFetchFailed ? "图片获取失败" : "图片",
                     width: 168
                 )
-                if !message.isOutgoing, let onRetryImage {
+                if let onRetryImage {
                     Button {
                         onRetryImage(message)
                     } label: {
@@ -489,6 +657,50 @@ struct MessageBubble: View, Equatable {
             .foregroundStyle(.secondary)
         }
         .frame(width: width, height: 100)
+    }
+
+    @MainActor
+    private func saveImage(atPath path: String) {
+        let source = URL(fileURLWithPath: path)
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = source.lastPathComponent
+        panel.allowedContentTypes = [.png, .jpeg, .heic, .tiff, .gif]
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        do {
+            // 写目标副本，不能把缓存源文件交给 replaceItemAt，否则可能移动掉缓存图片。
+            let data = try Data(contentsOf: source, options: .mappedIfSafe)
+            try data.write(to: destination, options: .atomic)
+        } catch {
+            let alert = NSAlert(error: error)
+            alert.runModal()
+        }
+    }
+
+    @MainActor
+    private func saveImage(from url: URL) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = message.kind == .image ? "图片.jpg" : "视频号封面.jpg"
+        panel.allowedContentTypes = [.png, .jpeg, .heic, .tiff, .gif]
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+
+        Task { @MainActor in
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                guard let response = response as? HTTPURLResponse,
+                      (200..<300).contains(response.statusCode),
+                      response.mimeType?.hasPrefix("image/") == true else {
+                    throw NSError(
+                        domain: "WeChatAI.ImageDownload",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: L("无法下载图片")]
+                    )
+                }
+                try data.write(to: destination, options: .atomic)
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.runModal()
+            }
+        }
     }
 
     private var fileName: String {

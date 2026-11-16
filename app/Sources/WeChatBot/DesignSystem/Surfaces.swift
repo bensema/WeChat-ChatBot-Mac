@@ -210,6 +210,12 @@ struct AvatarView: View {
     let title: String
     var kind: ConversationKind = .direct
     var size: CGFloat = 38
+    var imageURL: URL? = nil
+    var isRoundedSquare = false
+
+    private var cornerRadius: CGFloat {
+        isRoundedSquare ? size * 0.22 : size / 2
+    }
 
     private var initial: String? {
         guard let first = title.trimmingCharacters(in: .whitespacesAndNewlines).first else { return nil }
@@ -220,7 +226,7 @@ struct AvatarView: View {
         // Resolve the stable tint once per body instead of hashing the title twice.
         let tint = Theme.avatarTint(for: title)
         return ZStack {
-            Circle()
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [tint, tint.opacity(0.7)],
@@ -228,19 +234,41 @@ struct AvatarView: View {
                         endPoint: .bottomTrailing
                     )
                 )
-            if let initial, kind != .group {
-                Text(initial)
-                    .font(.system(size: size * 0.4, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+            if let imageURL {
+                AsyncImage(url: imageURL) { phase in
+                    if let image = phase.image {
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        fallbackAvatar
+                    }
+                }
+                .frame(width: size, height: size)
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             } else {
-                Image(systemName: kind.symbol)
-                    .font(.system(size: size * 0.38, weight: .semibold))
-                    .foregroundStyle(.white)
+                fallbackAvatar
             }
         }
         .frame(width: size, height: size)
-        .overlay(Circle().strokeBorder(.white.opacity(0.16), lineWidth: 1))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(.white.opacity(0.16), lineWidth: 1)
+        }
         .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private var fallbackAvatar: some View {
+        if let initial, kind != .group {
+            Text(initial)
+                .font(.system(size: size * 0.4, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+        } else {
+            Image(systemName: kind.symbol)
+                .font(.system(size: size * 0.38, weight: .semibold))
+                .foregroundStyle(.white)
+        }
     }
 }
 

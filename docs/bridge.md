@@ -226,7 +226,8 @@ App 强制把 `-image_path` / `-media_dir` 指向当前账号目录（忽略用�
   legacy `HandleMsg` 路径的媒体事件在推送前会同步下载/落盘，失败时整条事件可能被丢弃（见 §6）。
 - 入站图片（4.1.15 起）：hook 只给文本占位 `[图片]`，图片 XML 在 `raw_message`。
   bridge 在推送前解析 `<img>` 的 `aeskey` / `cdnmidimgurl` / `cdnthumburl` /
-  `cdnthumbaeskey` / `md5` / `length`，按 `message_id` 登记 mid → thumb 下载候选，并把
+  `cdnthumbaeskey` / `cdnhdurl` / `hdlength` / `md5` / `length`，按 `message_id` 登记 mid → thumb 下载候选，
+  并单独保留高清原图候选（仅用户在预览中主动请求时使用），再把
   文本占位替换成**无 data 的** `{"type":"image","data":{}}`。新增结构化字段不携带
   aeskey/CDN key，运行日志也不打印；`raw_message` 仍保留原始图片 XML（与历史行为一致）。
   实际下载发生在 App 调用 `POST /fetch_image` 时（按需，见 §3.4），不会阻塞事件推送；该链路已在
@@ -241,7 +242,7 @@ App 强制把 `-image_path` / `-media_dir` 指向当前账号目录（忽略用�
 | --- | --- | --- |
 | `get_login_info` | `{"echo":..., "status":"ok", "data":{"user_id":..., "nickname":...}}` | 上游 `nickname` 直接填 `wxid`（不是昵称）；`user_id` 优先取 App 传入的 `-self_id`，缺失时从 `image_path`/已收到事件推断。App 的账号档案以 resolver 为准，回包用于运行期确认。 |
 | `get_group_member_info` | `{"echo":..., "status":"ok", "data":{"nickname":...}}` | 只查进程内缓存（曾收到该群该成员消息）；未命中时 `nickname` 为空字符串（不是 `null`）。 |
-| `get_contact_directory` | `{"echo":..., "status":"ok", "data":{"ok":true,"users":{...},"groups":{...}}}` | 本机**只读**读取通讯录后的目录；失败回 `{"status":"failed","error":...}`。 |
+| `get_contact_directory` | `{"echo":..., "status":"ok", "data":{"ok":true,"users":{...},"groups":{...}}}` | 本机**只读**读取通讯录后的目录；联系人/群条目可带 `avatar_url`；失败回 `{"status":"failed","error":...}`。 |
 | `send_private_msg` / `send_group_msg` | **不回包** | 发送结果只写日志；成功/失败不会产生 echo/响应。App 应以 HTTP 发送为主通道。 |
 
 未列出的 action 会被静默忽略。同一时刻只接受一个 WS 连接：已有活动连接时新连接被拒绝
@@ -286,8 +287,11 @@ Content-Type: application/json
 {"message_id":"<OneBot message_id>"}
 ```
 
+预览缩略图时可附带 `"variant":"hd"` 请求高清原图；该请求只尝试 XML 中的
+`cdnhdurl` 高清候选，不会改变会话自动获取图片时的 mid/thumb 策略。
+
 - 鉴权与 `/send_*` 一致（Bearer + `hmac.Equal`）；非 POST → 405，未授权 → 401，
-  `message_id` 缺失/未登记/已过期 → 400，下载失败 → 502。
+  `message_id` 缺失/未登记/已过期或没有高清原图候选 → 400，下载失败 → 502。
 - 成功：HTTP 200
 
   ```json
@@ -295,9 +299,9 @@ Content-Type: application/json
   ```
 
 - 失败：HTTP 502 `{"status":"failed","error":"中文原因"}`。
-- 处理流程：按 `message_id` 查登记 → 并发槽（上限 2）→ 对 mid/thumb 候选逐个触发微信
-  CDN 下载 → 等待下载分片稳定 → 用 XML 的 `aeskey` AES-ECB 解密 → 校验图片魔数 →
-  写入 `<media_dir>/<yyyy-MM-dd>/<md5>.<ext>`（缩略图回退加 `-thumb` 后缀）→ 返回
+- 处理流程：按 `message_id` 查登记 → 并发槽（上限 2）→ 默认对 mid/thumb 候选逐个下载；
+  `variant=hd` 时只下载 `cdnhdurl` 候选 → 等待下载分片稳定 → 用 XML 的 `aeskey` AES-ECB 解密 →
+  校验图片魔数 → 写入 `<media_dir>/<yyyy-MM-dd>/<md5>.<ext>`（thumb 与 hd 分别加 `-thumb` / `-hd` 后缀）→ 返回
   `file://` 路径。单次总预算约 45 秒；成功后移除登记，临时失败保留至 30 分钟以支持重试。
   登记过期后 App 可在带鉴权的请求中附带该消息的 `raw_message`，bridge 会重新解析并登记一次。
 - 图片只写入 `-media_dir`（`filepath.Rel` 校验，拒绝目录穿越），绝不写入 app bundle；

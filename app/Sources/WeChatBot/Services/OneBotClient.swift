@@ -671,7 +671,11 @@ final class OneBotClient: NSObject, URLSessionWebSocketDelegate, @unchecked Send
     /// 只负责 `POST /fetch_image` 的一次请求与响应解析；队列/去重/失败重试策略由
     /// `ImageFetcher` 负责。`messageID` 必须是 bridge 事件里的原始 OneBot
     /// `message_id`，不能用 App 内的 `ChatMessage.id`（`ob-<message_id>`）。
-    func fetchImage(messageID: String, rawMessage: String? = nil) async throws -> String {
+    func fetchImage(
+        messageID: String,
+        rawMessage: String? = nil,
+        variant: String? = nil
+    ) async throws -> String {
         let trimmed = messageID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw OneBotError.sendFailed("消息 ID 为空") }
         let config = activeConfiguration
@@ -682,7 +686,8 @@ final class OneBotClient: NSObject, URLSessionWebSocketDelegate, @unchecked Send
             baseURL: base,
             token: config.token,
             messageID: trimmed,
-            rawMessage: rawMessage
+            rawMessage: rawMessage,
+            variant: variant
         )
         request.timeoutInterval = max(config.requestTimeout, 55)
 
@@ -698,7 +703,8 @@ final class OneBotClient: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         baseURL: URL,
         token: String,
         messageID: String,
-        rawMessage: String? = nil
+        rawMessage: String? = nil,
+        variant: String? = nil
     ) throws -> URLRequest {
         guard let url = URL(string: "/fetch_image", relativeTo: baseURL) else {
             throw OneBotError.invalidURL(baseURL.absoluteString)
@@ -712,6 +718,9 @@ final class OneBotClient: NSObject, URLSessionWebSocketDelegate, @unchecked Send
         var body: [String: String] = ["message_id": messageID]
         if let rawMessage, !rawMessage.isEmpty {
             body["raw_message"] = rawMessage
+        }
+        if let variant, !variant.isEmpty {
+            body["variant"] = variant
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body, options: [])
         return request

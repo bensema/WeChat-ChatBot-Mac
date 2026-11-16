@@ -155,8 +155,14 @@ enum ImageFetchPolicy {
         mediaPath: String?,
         mediaURL: String?
     ) -> Bool {
-        guard enabled, !isSelf, kind == .image else { return false }
+        guard enabled, kind == .image else { return false }
         guard !messageID.isEmpty else { return false }
-        return (mediaPath ?? "").isEmpty && (mediaURL ?? "").isEmpty
+        guard (mediaPath ?? "").isEmpty else { return false }
+        if let mediaURL, let url = URL(string: mediaURL),
+           ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+           url.host != nil {
+            return false
+        }
+        return true
     }
 }

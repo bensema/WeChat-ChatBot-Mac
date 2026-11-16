@@ -20,6 +20,7 @@ struct ConversationsView: View {
     @State private var renameTarget: Conversation?
     @State private var deleteTarget: Conversation?
     @State private var cleanupTarget: ConversationCleanupTarget?
+    @State private var imagePreview: ChatImagePreviewSelection?
     @State private var isClearing = false
     /// Coalesces deferred programmatic scrolling (see `scheduleScrollToBottom`).
     @State private var autoScrollTask: Task<Void, Never>?
@@ -57,6 +58,13 @@ struct ConversationsView: View {
         .background(PageBackground())
         .onAppear { validateSelection() }
         .onDisappear { autoScrollTask?.cancel() }
+        .sheet(item: $imagePreview) { selection in
+            ChatImageViewer(
+                url: selection.url,
+                title: selection.title,
+                loadOriginal: selection.loadOriginal
+            )
+        }
         .onChange(of: store.selectedConversationID) { _, newValue in
             // nil 是用户「再次点击当前会话行收起对话」的合法状态，不再自动选回第一条。
             guard let newValue else { return }
@@ -218,7 +226,16 @@ struct ConversationsView: View {
 
     private func chatHeader(_ conversation: Conversation) -> some View {
         HStack(spacing: 9) {
-            AvatarView(title: conversation.displayTitle, kind: conversation.kind, size: 34)
+            AvatarView(
+                title: conversation.displayTitle,
+                kind: conversation.kind,
+                size: 34,
+                imageURL: store.contactDirectorySnapshot?.avatarURL(
+                    for: conversation.id,
+                    kind: conversation.kind
+                ),
+                isRoundedSquare: true
+            )
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(conversation.displayTitle)
@@ -427,13 +444,19 @@ struct ConversationsView: View {
         let retryImage: (ChatMessage) -> Void = { failed in
             Task { await store.retryImageFetch(messageID: failed.id) }
         }
+        let fetchHighResolutionImage: @MainActor (ChatMessage) async throws -> URL = { image in
+            try await store.fetchHighResolutionImage(messageID: image.id)
+        }
         return MessageBubble(
             message: message,
             showsSender: conversation.kind == .group,
+            senderAvatarURL: store.contactDirectorySnapshot?.avatarURL(for: message.senderID, kind: .direct),
             voiceTranscriptVisible: store.settings.bot.voiceSettings.showTranscriptInBubble,
             onRetryVoice: retryVoice,
             imageFetchFailed: store.imageFetchFailures.contains(message.id),
-            onRetryImage: retryImage
+            onRetryImage: retryImage,
+            onFetchHighResolutionImage: fetchHighResolutionImage,
+            onPreviewImage: { imagePreview = $0 }
         )
         .equatable()
     }

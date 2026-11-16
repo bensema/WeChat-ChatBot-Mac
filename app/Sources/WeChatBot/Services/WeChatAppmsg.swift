@@ -9,6 +9,33 @@ import Foundation
 ///
 /// 解析是纯函数、无 IO、值类型，可在 inbound 回调线程直接调用。
 struct WeChatAppmsg: Equatable, Sendable {
+    /// 可直接展示的视频号分享信息。视频本体仍由微信客户端播放，封面使用
+    /// finderFeed 中的 CDN HTTPS 地址。
+    struct FinderFeed: Equatable, Sendable {
+        var nickname: String
+        var description: String
+        var isLive: Bool
+        var coverURL: String?
+        var thumbURL: String?
+        var width: Int?
+        var height: Int?
+
+        var imageAspectRatio: Double? {
+            guard let width, let height, width > 0, height > 0 else { return nil }
+            let ratio = Double(width) / Double(height)
+            return (0.45...2.2).contains(ratio) ? ratio : nil
+        }
+
+        var imageURL: URL? {
+            for value in [coverURL, thumbURL] {
+                guard let value, let url = URL(string: value),
+                      url.scheme == "https" || url.scheme == "http" else { continue }
+                return url
+            }
+            return nil
+        }
+    }
+
     /// 被引用消息的摘要。
     ///
     /// 注意 `senderName` 可能为空（旧消息缺 `<displayname>`），展示层不能伪造；
@@ -53,6 +80,7 @@ struct WeChatAppmsg: Equatable, Sendable {
     var text: String
     /// 只有引用消息（type 57）才有；refermsg 损坏时字段为空但仍是引用消息。
     var quote: Quote?
+    var finderFeed: FinderFeed?
 
     /// hook 对无法识别 appmsg 写的占位文本，用于历史消息幂等修复。
     static let placeholderText = "[链接/文件]"
@@ -103,7 +131,8 @@ struct WeChatAppmsg: Equatable, Sendable {
         }
 
         let text = displayText(type: type, title: title, appmsg: appmsg, quote: quote)
-        return WeChatAppmsg(type: type, title: title, text: text, quote: quote)
+        let finderFeed = (type == 51 || type == 53) ? parseFinderFeed(in: appmsg, type: type) : nil
+        return WeChatAppmsg(type: type, title: title, text: text, quote: quote, finderFeed: finderFeed)
     }
 
     /// 从 App 保存的事件 `rawJSON` 解析；不是 appmsg 返回 nil。
@@ -156,7 +185,7 @@ struct WeChatAppmsg: Equatable, Sendable {
             // 不再加 `[拍一拍]` 前缀，避免规则层匹配模板时多出装饰。
             let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? "[拍一拍]" : trimmed
-        case 51:
+        case 51, 53:
             return cardText(label: label(for: type), content: finderFeedContent(in: appmsg))
         case 2000:
             return cardText(label: label(for: type), content: transferContent(title: title, appmsg: appmsg))
@@ -225,13 +254,26 @@ struct WeChatAppmsg: Equatable, Sendable {
     /// 视频号：`<title>` 常是「当前版本不支持展示该内容，请升级至最新版本。」
     /// 这类占位文案，真实可读内容在 `<finderFeed>` 的 nickname/desc。
     private static func finderFeedContent(in appmsg: String) -> String {
-        guard let feed = WeChatXML.block("finderFeed", in: appmsg) else { return "" }
-        let nickname = WeChatXML.field("nickname", in: feed) ?? ""
-        let desc = WeChatXML.field("desc", in: feed) ?? ""
+        guard let feed = parseFinderFeed(in: appmsg) else { return "" }
+        let nickname = feed.nickname
+        let desc = feed.description
         if !nickname.isEmpty, !desc.isEmpty {
             return "\(nickname)：\(desc)"
         }
         return nickname.isEmpty ? desc : nickname
+    }
+
+    private static func parseFinderFeed(in appmsg: String, type: Int = 51) -> FinderFeed? {
+        guard let block = WeChatXML.block("finderFeed", in: appmsg) else { return nil }
+        return FinderFeed(
+            nickname: WeChatXML.field("nickname", in: block) ?? "",
+            description: WeChatXML.field("desc", in: block) ?? "",
+            isLive: type == 53,
+            coverURL: WeChatXML.field("coverUrl", in: block),
+            thumbURL: WeChatXML.field("thumbUrl", in: block),
+            width: Int(WeChatXML.field("width", in: block) ?? ""),
+            height: Int(WeChatXML.field("height", in: block) ?? "")
+        )
     }
 
     /// 转账：优先 `<wcpayinfo><feedesc>`（如 `￥0.01`）+ `pay_memo`；

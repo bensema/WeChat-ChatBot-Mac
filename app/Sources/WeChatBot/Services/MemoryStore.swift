@@ -282,10 +282,15 @@ actor MemoryStore {
             display TEXT NOT NULL,
             nickname TEXT,
             remark TEXT,
+            avatar_url TEXT,
             kind TEXT NOT NULL,
             updated_at REAL NOT NULL
         );
         """)
+
+        if try !columnExists(in: "contact_directory", column: "avatar_url") {
+            try execute("ALTER TABLE contact_directory ADD COLUMN avatar_url TEXT;")
+        }
 
         // v3: per-conversation working hours stored as nullable JSON
         // (NULL means “follow the global bot setting”).
@@ -2042,7 +2047,7 @@ actor MemoryStore {
     func loadContactDirectory() throws -> ContactDirectorySnapshot? {
         try ensureOpen()
         let statement = try prepare("""
-        SELECT username, display, nickname, remark, kind, updated_at FROM contact_directory;
+        SELECT username, display, nickname, remark, avatar_url, kind, updated_at FROM contact_directory;
         """)
         defer { sqlite3_finalize(statement) }
         var users: [String: ContactDirectoryEntry] = [:]
@@ -2053,14 +2058,15 @@ actor MemoryStore {
             let entry = ContactDirectoryEntry(
                 display: try text(statement, 1),
                 nickname: optionalText(statement, 2),
-                remark: optionalText(statement, 3)
+                remark: optionalText(statement, 3),
+                avatarURL: optionalText(statement, 4)
             )
-            if (try text(statement, 4)) == ConversationKind.group.rawValue {
+            if (try text(statement, 5)) == ConversationKind.group.rawValue {
                 groups[username] = entry
             } else {
                 users[username] = entry
             }
-            let updatedAt = date(statement, 5)
+            let updatedAt = date(statement, 6)
             generatedAt = max(generatedAt ?? updatedAt, updatedAt)
         }
         guard !(users.isEmpty && groups.isEmpty) else { return nil }
@@ -2083,8 +2089,8 @@ actor MemoryStore {
             try execute("DELETE FROM contact_directory;")
             let statement = try prepare("""
             INSERT OR REPLACE INTO contact_directory
-                (username, display, nickname, remark, kind, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?);
+                (username, display, nickname, remark, avatar_url, kind, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?);
             """)
             defer { sqlite3_finalize(statement) }
             for (kind, entries) in buckets {
@@ -2096,8 +2102,9 @@ actor MemoryStore {
                     try bind(statement, 2, entry.display)
                     try bind(statement, 3, entry.nickname)
                     try bind(statement, 4, entry.remark)
-                    try bind(statement, 5, kind.rawValue)
-                    try bind(statement, 6, updatedAt)
+                    try bind(statement, 5, entry.avatarURL)
+                    try bind(statement, 6, kind.rawValue)
+                    try bind(statement, 7, updatedAt)
                     try stepDone(statement)
                 }
             }

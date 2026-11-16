@@ -229,10 +229,10 @@ bridge 推送的 JSON（`WechatMessage`，字段可能缺省）：
   selfID、不是 `wxid_*` / `*@chatroom`、不是我 / 自己）；自消息不参与命名；群聊标题不从消息推断，
   只更新副标题；用户重命名（非占位标题）后不被覆盖。展示层 `ConversationName` 兜底为系统账号中文名 +
   `群聊 / 微信好友 / 公众号 · 尾号`，启动时 `repairPlaceholderConversationTitles` 幂等清理历史 ID 标题。
-- 通讯录真实昵称/群名：App 连接后请求 `get_contact_directory`；bridge 调 hook 在本机**只读**读取通讯录，
-  返回 `users` / `groups`（`groups[*].members` 为群成员群昵称）。App 只在标题为空/占位时用目录填
-  `Conversation.title`；bridge 转发事件时覆盖 `sender.nickname`（群聊优先群昵称，再回退通讯录显示名；
-  群事件附 `group_name`），群 @ 昵称同样优先群昵称。
+- 通讯录真实昵称/群名与头像：App 连接后请求 `get_contact_directory`；bridge 调 hook 在本机**只读**读取通讯录，
+  返回 `users` / `groups`（`groups[*].members` 为群成员群昵称；联系人/群条目可含 `avatar_url`）。App 只在标题为空/占位时用目录填
+  `Conversation.title`，并按 wxid 缓存头像地址供会话列表、详情和消息发送者头像使用；bridge 转发事件时覆盖
+  `sender.nickname`（群聊优先群昵称，再回退通讯录显示名；群事件附 `group_name`），群 @ 昵称同样优先群昵称。
 - appmsg 展示文本：hook 只识别拍一拍（appmsg `<type>62</type>`），其它 `msg_type=49` 一律写
   `[链接/文件]`；App 从 `raw_message` 按 appmsg `<type>` 还原：引用 57 → `回复正文` + 换行 +
   `【引用 发送者：原文摘要】`，链接 5 / 文件 6 / 视频 4 / 表情 8 / 聊天记录 19 / 小程序 33·36 /
@@ -245,7 +245,8 @@ bridge 推送的 JSON（`WechatMessage`，字段可能缺省）：
   图片 XML 在 `raw_message` 里；bridge 推送前按 `message_id` 登记下载候选，把 `[图片]` 替换成**无 data 的**
   `{"type":"image","data":{}}`（结构化字段与日志不携带 aeskey/CDN key，`raw_message` 保留原始 XML
   并照旧入库）。`POST /fetch_image` 时 bridge 按需触发微信 CDN 下载并解密，写入 `-media_dir/<yyyy-MM-dd>/`
-  并返回 `file://` 路径。是否获取按**会话**控制：`Conversation.imageFetchEnabled`（nil 跟随旧全局默认，
+  并返回 `file://` 路径；预览缩略图时可单独请求 `variant=hd` 获取高清原图，不改变自动下载策略。
+  是否获取按**会话**控制：`Conversation.imageFetchEnabled`（nil 跟随旧全局默认，
   默认开启），入口为会话详情 → 菜单 →「媒体」→「获取图片」；关闭时完全不请求，只显示「图片」占位。
   只处理实时入站图片，历史消息不回填。
 - 识图（按需）：自动回复触发且「AI 模型 → 识图模型」启用时，App 对上下文内最近 10 分钟、最多 2 张
@@ -281,7 +282,7 @@ bridge 推送的 JSON（`WechatMessage`，字段可能缺省）：
   返回 `{"status":"ok"}` 或 5xx/`{"status":"failed","error":...}`。图片/语音/视频/文件用
   `{"type":"image","data":{"file":"base64://..."}}` 等数组元素；单条消息过长时 App 自行分段。
 - **入站图片获取**：`POST http://127.0.0.1:58080/fetch_image`，Header `Authorization: Bearer <token>`，
-  body `{"message_id":"<OneBot message_id>","raw_message":"<图片 XML，可选>"}`；bridge 按需触发微信 CDN 下载（单次总预算约 45 秒），
+  body `{"message_id":"<OneBot message_id>","raw_message":"<图片 XML，可选>","variant":"hd（可选）"}`；bridge 按需触发微信 CDN 下载（单次总预算约 45 秒），
   成功返回 `{"status":"ok","data":{"file":"file:///.../accounts/<当前账号>/media/<date>/<name>.jpg","message_id":"..."}}`，
   失败返回 `{"status":"failed","error":"中文原因"}`；未登记/已过期 400，下载失败 502。App 只在该会话
   「获取图片」开启、消息是图片、`mediaPath`/`mediaURL` 为空时请求（会话覆盖 → 旧全局默认 → true），

@@ -1327,7 +1327,8 @@ final class RuntimeCoordinator {
                 else { throw OneBotError.badResponse("图片消息已不存在") }
                 return try await client.fetchImage(
                     messageID: bridgeMessageID,
-                    rawMessage: Self.rawMessage(from: message.rawJSON ?? "")
+                    rawMessage: Self.rawMessage(from: message.rawJSON ?? ""),
+                    variant: "thumb"
                 )
             },
             onFetched: { [weak self] request, path in
@@ -2451,6 +2452,7 @@ final class RuntimeCoordinator {
         didAutoPromptCaptureSetup = false
         store.isCaptureSetupPromptPresented = false
         contactDirectory = nil
+        store.contactDirectorySnapshot = nil
         lastContactDirectoryFailureReason = nil
         pendingAccountSwitch = nil
         clearReplyProgresses()
@@ -2500,6 +2502,7 @@ final class RuntimeCoordinator {
     private func loadCachedContactDirectory() async {
         guard let cached = try? await memory.loadContactDirectory(), cached.ok else { return }
         contactDirectory = cached
+        store.contactDirectorySnapshot = cached
         log(.debug, "Directory", "已加载通讯录缓存：\(cached.users.count) 位联系人 / \(cached.groups.count) 个群")
         await applyContactDirectoryToConversationTitles()
     }
@@ -2521,6 +2524,7 @@ final class RuntimeCoordinator {
         let isFirstSnapshot = contactDirectory?.ok != true
         guard epoch == accountEpoch else { return }
         contactDirectory = snapshot
+        store.contactDirectorySnapshot = snapshot
         do {
             try await memory.replaceContactDirectory(snapshot)
         } catch {
@@ -3309,6 +3313,23 @@ final class RuntimeCoordinator {
             return
         }
         log(.info, "Media", "已重新排队获取图片（\(message.conversationID)）")
+    }
+
+    func fetchHighResolutionImage(messageID: String) async throws -> URL {
+        let chatMessageID = messageID.hasPrefix("ob-") ? messageID : "ob-\(messageID)"
+        guard let message = await imageMessage(messageID: chatMessageID),
+              message.kind == .image,
+              message.id.hasPrefix("ob-") else {
+            throw OneBotError.badResponse("找不到这条图片消息的原图信息")
+        }
+        guard let client = oneBotClient else { throw OneBotError.notRunning }
+        let bridgeMessageID = String(message.id.dropFirst(3))
+        let path = try await client.fetchImage(
+            messageID: bridgeMessageID,
+            rawMessage: Self.rawMessage(from: message.rawJSON ?? ""),
+            variant: "full"
+        )
+        return URL(fileURLWithPath: path)
     }
 
     // MARK: 识图（视觉模型）
@@ -5849,6 +5870,12 @@ extension AppStore {
         let coordinator = RuntimeRegistry.coordinator(for: self)
         await coordinator.bootstrapIfNeeded()
         await coordinator.retryImageFetch(messageID: messageID)
+    }
+
+    func fetchHighResolutionImage(messageID: String) async throws -> URL {
+        let coordinator = RuntimeRegistry.coordinator(for: self)
+        await coordinator.bootstrapIfNeeded()
+        return try await coordinator.fetchHighResolutionImage(messageID: messageID)
     }
 
     /// 刷新 bridge `/voice_status`（语音发送句柄 / 登录稳定倒计时），供「机器人 → 语音」展示与决策门禁。

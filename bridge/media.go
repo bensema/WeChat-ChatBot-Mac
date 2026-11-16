@@ -77,15 +77,17 @@ var (
 	mediaDir string
 
 	// 以下是返回给 App 的可读中文错误（不含 key / XML）。
-	errImageJobNotFound       = errors.New("该消息的图片信息缺失或已过期")
-	errBridgeFridaUnavailable = errors.New("bridge 尚未连接微信，无法获取图片")
-	errImageFetchBusy         = errors.New("图片队列繁忙，请稍后重试")
-	errImageDownloadTimeout   = errors.New("图片下载超时（微信未响应）")
-	errImageDecryptFailed     = errors.New("图片解密失败，请稍后重试")
-	errImageTriggerRejected   = errors.New("微信未接受图片下载请求")
-	errImageUnsupportedFormat = errors.New("不支持的图片格式")
-	errImageTriggerTimeout    = errors.New("微信下载请求超时")
-	errImageIncomplete        = errors.New("图片数据不完整，正在等待微信下载完成")
+	errImageJobNotFound        = errors.New("该消息的图片信息缺失或已过期")
+	errBridgeFridaUnavailable  = errors.New("bridge 尚未连接微信，无法获取图片")
+	errImageFetchBusy          = errors.New("图片队列繁忙，请稍后重试")
+	errImageDownloadTimeout    = errors.New("图片下载超时（微信未响应）")
+	errImageDecryptFailed      = errors.New("图片解密失败，请稍后重试")
+	errImageTriggerRejected    = errors.New("微信未接受图片下载请求")
+	errImageUnsupportedFormat  = errors.New("不支持的图片格式")
+	errImageTriggerTimeout     = errors.New("微信下载请求超时")
+	errImageIncomplete         = errors.New("图片数据不完整，正在等待微信下载完成")
+	errImageHDUnavailable      = errors.New("这条消息没有可用的高清原图")
+	errImageVariantUnavailable = errors.New("这条消息没有可用的图片规格")
 )
 
 // triggerIncomingImageDownload 是可注入的下载触发器（单测替换成伪造分片）。
@@ -133,15 +135,16 @@ type incomingImageXML struct {
 
 // incomingImageJob 是一条入站图片的下载元数据。
 type incomingImageJob struct {
-	MessageID  string
-	MD5        string
-	CreatedAt  time.Time
-	Candidates []imageCandidate
+	MessageID   string
+	MD5         string
+	CreatedAt   time.Time
+	Candidates  []imageCandidate
+	HDCandidate *imageCandidate
 }
 
-// imageCandidate 是一个可尝试的下载候选（mid 大图 / thumb 缩略图）。
+// imageCandidate 是一个可尝试的下载候选（mid 大图 / thumb 缩略图 / hd 原图）。
 type imageCandidate struct {
-	Variant  string // mid | thumb | hd（hd 本次不收集）
+	Variant  string // mid | thumb | hd
 	CDNKey   string
 	AESKey   string
 	FileType int
@@ -200,18 +203,24 @@ func ensureWithinRoot(root, target string) error {
 	return nil
 }
 
-// parseIncomingImageXML 解析 raw_message 里的 <img> 属性，返回下载候选与 md5。
-// 候选顺序固定为 mid → thumb；HD 候选本次不收集（下载体积不可控），
-// incomingImageXML 里保留 HD 字段供后续版本使用。
+// parseIncomingImageXML 解析 raw_message 里的 <img> 属性，返回常规下载候选与 md5。
+// 常规候选顺序固定为 mid → thumb；HD 候选仅由显式高清原图请求使用，避免会话加载
+// 时隐式下载大文件。
 func parseIncomingImageXML(raw string) ([]imageCandidate, string, error) {
+	candidates, _, md5, err := parseIncomingImageDetails(raw)
+	return candidates, md5, err
+}
+
+// parseIncomingImageDetails 在保持默认 mid/thumb 行为的同时解析可选的高清候选。
+func parseIncomingImageDetails(raw string) ([]imageCandidate, *imageCandidate, string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return nil, "", errors.New("图片 XML 为空")
+		return nil, nil, "", errors.New("图片 XML 为空")
 	}
 
 	var parsed incomingImageXML
 	if err := xml.Unmarshal([]byte(raw), &parsed); err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	if strings.TrimSpace(parsed.Image.EncryVer) != "" {
 		if version, err := strconv.Atoi(strings.TrimSpace(parsed.Image.EncryVer)); err == nil {
@@ -247,7 +256,23 @@ func parseIncomingImageXML(raw string) ([]imageCandidate, string, error) {
 			})
 		}
 	}
-	return candidates, md5, nil
+	var hdCandidate *imageCandidate
+	if key := strings.TrimSpace(parsed.Image.HDURL); key != "" {
+		if aesKey := strings.TrimSpace(parsed.Image.AesKey); aesKey != "" {
+			length := parsed.Image.HDLength
+			if length <= 0 {
+				length = parsed.Image.Length
+			}
+			hdCandidate = &imageCandidate{
+				Variant:  "hd",
+				CDNKey:   key,
+				AESKey:   aesKey,
+				FileType: 1,
+				Length:   length,
+			}
+		}
+	}
+	return candidates, hdCandidate, md5, nil
 }
 
 // normalizeIncomingMD5 只接受 32 位十六进制，非法值返回空（仅用于文件名去重）。
@@ -274,12 +299,12 @@ func registerIncomingImage(payload map[string]interface{}) {
 	replaceIncomingImageMessage(payload)
 
 	raw, _ := payload["raw_message"].(string)
-	candidates, md5, err := parseIncomingImageXML(raw)
+	candidates, hdCandidate, md5, err := parseIncomingImageDetails(raw)
 	if err != nil {
 		Warn("入站图片 XML 解析失败", "err", err)
 		return
 	}
-	if len(candidates) == 0 {
+	if len(candidates) == 0 && hdCandidate == nil {
 		Debug("入站图片没有可下载候选，跳过登记")
 		return
 	}
@@ -292,10 +317,11 @@ func registerIncomingImage(payload map[string]interface{}) {
 
 	prunePendingImageJobs()
 	pendingImageJobs.Store(messageID, &incomingImageJob{
-		MessageID:  messageID,
-		MD5:        md5,
-		CreatedAt:  time.Now(),
-		Candidates: candidates,
+		MessageID:   messageID,
+		MD5:         md5,
+		CreatedAt:   time.Now(),
+		Candidates:  candidates,
+		HDCandidate: hdCandidate,
 	})
 	Debug("已登记入站图片", "message_id", messageID, "candidates", len(candidates))
 }
@@ -494,6 +520,25 @@ func prunePendingImageJobs() {
 // fetchIncomingImage 触发微信下载一条入站图片，解密并保存后返回本地路径。
 // 总预算 45s；并发上限 2；先 mid 后 thumb（docs/bridge.md §3.4）。
 func fetchIncomingImage(messageID string) (string, error) {
+	return fetchIncomingImageVariant(messageID, "")
+}
+
+// fetchIncomingImageHD 只尝试消息 XML 中明确提供的高清图片候选。
+func fetchIncomingImageHD(messageID string) (string, error) {
+	return fetchIncomingImageVariant(messageID, "hd")
+}
+
+// fetchIncomingImageThumb 只下载缩略图，供会话气泡按需展示。
+func fetchIncomingImageThumb(messageID string) (string, error) {
+	return fetchIncomingImageVariant(messageID, "thumb")
+}
+
+// fetchIncomingImageFull 优先原图，其次可解码的大图，最后回退缩略图。
+func fetchIncomingImageFull(messageID string) (string, error) {
+	return fetchIncomingImageVariant(messageID, "full")
+}
+
+func fetchIncomingImageVariant(messageID, variant string) (string, error) {
 	messageID = strings.TrimSpace(messageID)
 	if messageID == "" {
 		return "", errImageJobNotFound
@@ -508,6 +553,36 @@ func fetchIncomingImage(messageID string) (string, error) {
 	if !ok || job == nil {
 		pendingImageJobs.Delete(messageID)
 		return "", errImageJobNotFound
+	}
+	candidates := job.Candidates
+	switch variant {
+	case "hd":
+		if job.HDCandidate == nil {
+			return "", errImageHDUnavailable
+		}
+		candidates = []imageCandidate{*job.HDCandidate}
+	case "thumb":
+		candidates = nil
+		for _, candidate := range job.Candidates {
+			if candidate.Variant == "thumb" {
+				candidates = append(candidates, candidate)
+			}
+		}
+		if len(candidates) == 0 {
+			candidates = job.Candidates
+		}
+	case "full":
+		candidates = make([]imageCandidate, 0, len(job.Candidates)+1)
+		if job.HDCandidate != nil {
+			candidates = append(candidates, *job.HDCandidate)
+		}
+		candidates = append(candidates, job.Candidates...)
+	}
+	if len(candidates) == 0 {
+		if variant == "hd" {
+			return "", errImageHDUnavailable
+		}
+		return "", errImageVariantUnavailable
 	}
 
 	deadline := time.Now().Add(imageFetchTotalBudget)
@@ -542,7 +617,7 @@ func fetchIncomingImage(messageID string) (string, error) {
 	}
 
 	var lastErr error
-	for _, candidate := range job.Candidates {
+	for _, candidate := range candidates {
 		if !time.Now().Before(deadline) {
 			lastErr = errImageDownloadTimeout
 			break
@@ -586,6 +661,10 @@ func fetchImageCandidate(job *incomingImageJob, candidate imageCandidate, mediaR
 	if err := ensureWithinRoot(mediaRoot, tempPath); err != nil {
 		return "", err
 	}
+	// The x64 CdnFile path writes a completed local file. Remove any improbable
+	// collision before handing the path to WeChat so a stale image cannot pass
+	// the completion check below.
+	_ = os.Remove(tempPath)
 	defer func() { _ = os.Remove(tempPath) }()
 
 	// 不要删除同名 CDN key 的分片：微信收到图片后常常已经开始自然下载，
@@ -617,8 +696,7 @@ func fetchImageCandidate(job *incomingImageJob, candidate imageCandidate, mediaR
 				"message_id", job.MessageID, "variant", candidate.Variant, "reason", err)
 			triggerErr = err
 		} else {
-			switch strings.ToLower(strings.TrimSpace(fmt.Sprint(triggered))) {
-			case "", "fail", "0":
+			if imageDownloadTriggerRejected(fmt.Sprint(triggered)) {
 				Debug("图片下载触发被拒绝，继续等待微信自然下载",
 					"message_id", job.MessageID, "variant", candidate.Variant)
 				triggerErr = errImageTriggerRejected
@@ -627,7 +705,9 @@ func fetchImageCandidate(job *incomingImageJob, candidate imageCandidate, mediaR
 	}
 	// 触发后重新按「候选 key + 规范化兜底」找一次，确定实际数据落在哪个 key。
 	if mediaKey == "" {
-		media, mediaKey, ok = waitForImageMedia(candidate.CDNKey, candidate.Length, seqBefore, candidateDeadline)
+		media, mediaKey, ok = waitForImageMediaOrNativeFile(
+			candidate.CDNKey, tempPath, candidate.AESKey, candidate.Length, seqBefore, candidateDeadline,
+		)
 		if ok {
 			if path, err := saveDecryptedCandidate(job, candidate, media, mediaRoot); err == nil {
 				return path, nil
@@ -662,6 +742,80 @@ func fetchImageCandidate(job *incomingImageJob, candidate imageCandidate, mediaR
 		return "", triggerErr
 	}
 	return "", errImageIncomplete
+}
+
+// imageDownloadTriggerRejected interprets the native startDownloadMedia return:
+// zero is the normal C/C++ success code; negative codes and explicit Frida
+// failure sentinels mean the request was rejected. We must still wait for natural
+// media chunks when the trigger is rejected.
+func imageDownloadTriggerRejected(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "", "fail", "off", "false":
+		return true
+	}
+	code, err := strconv.ParseInt(value, 10, 64)
+	return err == nil && code < 0
+}
+
+// waitForImageMediaOrNativeFile waits for the normal encrypted download chunks
+// and the plaintext file that CdnFile::_WriteDecrypt emits for a native x64 task.
+// Each source has its own completion check so a partially written file is never
+// installed as a chat image.
+func waitForImageMediaOrNativeFile(
+	cdnKey, filePath, aesKey string,
+	plainLength int,
+	seqBefore int64,
+	deadline time.Time,
+) ([]byte, string, bool) {
+	startedAt := time.Now()
+	fallbackKey := ""
+	expected := expectedCipherLength(plainLength)
+	var lastFileSize int64 = -1
+	var lastFileStableSince time.Time
+	var lastCheckedFileSize int64 = -1
+
+	for {
+		if media, done := snapshotImageDownload(cdnKey, expected, 0); done {
+			return media, cdnKey, true
+		}
+		if fallbackKey == "" && time.Since(startedAt) >= imageDownloadFallbackAfter {
+			if key, ok := latestDownloadAfter(seqBefore); ok && key != cdnKey {
+				fallbackKey = key
+			}
+		}
+		if fallbackKey != "" {
+			if media, done := snapshotImageDownload(fallbackKey, expected, 0); done {
+				return media, fallbackKey, true
+			}
+		}
+
+		if info, err := os.Lstat(filePath); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			size := info.Size()
+			if size != lastFileSize {
+				lastFileSize = size
+				lastFileStableSince = time.Now()
+				lastCheckedFileSize = -1
+			}
+			if size != lastCheckedFileSize && time.Since(lastFileStableSince) >= imageDownloadStableAfter {
+				lastCheckedFileSize = size
+				if data, readErr := os.ReadFile(filePath); readErr == nil && int64(len(data)) == size {
+					if _, decodeErr := decryptImageBytes(data, aesKey, plainLength); decodeErr == nil {
+						return data, "", true
+					}
+				}
+			}
+		} else {
+			lastFileSize = -1
+			lastFileStableSince = time.Time{}
+			lastCheckedFileSize = -1
+		}
+
+		if !time.Now().Before(deadline) {
+			return nil, "", false
+		}
+		time.Sleep(imageDownloadPollEvery)
+	}
 }
 
 // saveDecryptedCandidate 解密并落盘一个候选的数据；失败返回可读错误。
@@ -956,7 +1110,7 @@ func isSupportedImageExt(ext string) bool {
 }
 
 // saveIncomingImage 保存到 <mediaDir>/<yyyy-MM-dd>/<md5>.<ext>；
-// 缩略图回退（variant=thumb）时加 `-thumb` 后缀，避免与同一张图的高清版本互相覆盖。
+// thumb 与 hd 使用独立后缀，避免相互覆盖。
 // md5 非法时用 fetched-<UnixMilli>-<rand>.<ext>。同名同大小文件直接复用。
 // 写入前用 filepath.Rel 校验仍在 mediaDir 内。
 func saveIncomingImage(mediaRoot string, plain []byte, md5 string, ext string, variant string) (string, error) {
@@ -971,8 +1125,11 @@ func saveIncomingImage(mediaRoot string, plain []byte, md5 string, ext string, v
 	name := ""
 	if normalized := normalizeIncomingMD5(md5); normalized != "" {
 		base := normalized
-		if variant == "thumb" {
+		switch variant {
+		case "thumb":
 			base += "-thumb"
+		case "hd":
+			base += "-hd"
 		}
 		name = base + "." + ext
 	} else {

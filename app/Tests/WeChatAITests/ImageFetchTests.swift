@@ -67,12 +67,16 @@ final class ImageFetchTests: XCTestCase {
 
         XCTAssertTrue(should(), "实时入站图片默认应获取")
         XCTAssertFalse(should(enabled: false), "关闭设置后不请求")
-        XCTAssertFalse(should(isSelf: true), "自己发出的图片不请求")
+        XCTAssertTrue(should(isSelf: true), "自己发出的图片也应按需获取")
         XCTAssertFalse(should(kind: .text), "非图片消息不请求")
         XCTAssertFalse(should(messageID: ""), "缺少 message_id 无法请求")
         XCTAssertFalse(should(mediaPath: "/tmp/a.jpg"), "已有本地路径不重复请求")
         XCTAssertFalse(should(mediaURL: "https://example.com/a.jpg"), "已有 URL 不重复请求")
         XCTAssertTrue(should(mediaPath: ""), "空字符串不应阻止获取")
+        XCTAssertTrue(should(isSelf: true, mediaURL: "file:///tmp/not-imported.jpg"),
+                      "无法导入为本地文件的自发图片仍应通过 bridge 获取")
+        XCTAssertTrue(should(mediaURL: "wx-cdn-key-without-scheme"),
+                      "非 HTTP URL 标识不能当作可直接显示的图片")
     }
 
     // MARK: - 3. fetchImageRequest
@@ -114,6 +118,23 @@ final class ImageFetchTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
         XCTAssertEqual(object["message_id"], "123456")
         XCTAssertEqual(object["raw_message"], xml)
+    }
+
+    func testFetchImageRequestCanSelectThumbnailAndOriginalFallbackVariants() throws {
+        let base = try XCTUnwrap(URL(string: "http://127.0.0.1:58080"))
+        for variant in ["thumb", "full"] {
+            let request = try OneBotClient.fetchImageRequest(
+                baseURL: base,
+                token: "test-token",
+                messageID: "123456",
+                rawMessage: #"<msg><img cdnmidimgurl="mid" aeskey="key"/></msg>"#,
+                variant: variant
+            )
+            let body = try XCTUnwrap(request.httpBody)
+            let object = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: String])
+            XCTAssertEqual(object["variant"], variant)
+            XCTAssertEqual(object["message_id"], "123456")
+        }
     }
 
     // MARK: - 4. parseImageFetchResponse

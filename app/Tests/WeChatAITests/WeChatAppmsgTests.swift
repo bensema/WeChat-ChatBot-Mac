@@ -190,6 +190,27 @@ final class WeChatAppmsgTests: XCTestCase {
         XCTAssertFalse(appmsg.text.contains("当前版本不支持"), "不能使用微信的升级占位文案")
     }
 
+    func testFinderFeedParsesShareCoverAndCardDetails() throws {
+        let cover = "https://finder.video.qq.com/cover?token=sample&amp;format=200"
+        let thumb = "https://finder.video.qq.com/thumb.jpg"
+        let xml = appmsgXML(
+            type: 51,
+            title: "当前版本不支持展示该内容，请升级至最新版本。",
+            extra: "<finderFeed><nickname>示例创作者</nickname><desc>分享视频说明</desc>"
+                + "<coverUrl>\(cover)</coverUrl><thumbUrl>\(thumb)</thumbUrl><width>720</width><height>960</height>"
+                + "<mediaList><media><thumbUrl>https://finder.video.qq.com/nested.jpg</thumbUrl></media></mediaList>"
+                + "</finderFeed>"
+        )
+
+        let feed = try XCTUnwrap(WeChatAppmsg.parse(xml)?.finderFeed)
+        XCTAssertEqual(feed.nickname, "示例创作者")
+        XCTAssertEqual(feed.description, "分享视频说明")
+        XCTAssertEqual(feed.coverURL, "https://finder.video.qq.com/cover?token=sample&format=200")
+        XCTAssertEqual(feed.thumbURL, thumb)
+        XCTAssertEqual(feed.imageAspectRatio, 0.75)
+        XCTAssertEqual(feed.imageURL?.absoluteString, feed.coverURL)
+    }
+
     func testFinderFeedFallsBackWhenOnlyOneFieldOrNone() throws {
         let nicknameOnly = appmsgXML(
             type: 51,

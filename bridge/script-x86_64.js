@@ -32,9 +32,13 @@ for (var i=0; i<expectedBytes.length; i++) {
     if (target.add(i).readU8() !== parseInt(expectedBytes[i],16)) throw new Error("Message finalizer signature mismatch");
 }
 var x64Health = { ready:false, arch:Process.arch, version:"{{.version}}", build:"{{.build}}",
-    uuid:actualUUID, received:0, sendSupported:false,
+    uuid:actualUUID, received:0, sendSupported:false, mediaSupported:false, mediaDownloads:0,
     textSeed:false, voiceSend:false, voiceSeed:false, submitted:0, lastNativeTaskId:0 };
 var incomingTrafficSeen = false;
+var x64CdnGetServiceAddr = baseAddr.add(parseInt("{{.cdnGetServiceAddr}}", 16));
+var x64CdnManagerGetterAddr = baseAddr.add(parseInt("{{.cdnManagerGetterAddr}}", 16));
+var x64StartDownloadMediaAddr = baseAddr.add(parseInt("{{.startDownloadMedia}}", 16));
+var x64DownloadManager = null;
 function hookDebug() {}
 function isReadablePointer(p) { try { return p && !p.isNull() && (p.readU8() >= 0); } catch(e) { return false; } }
 // Intel libc++: short length = byte[0] >> 1; long = bit 0, size +8, data +16.
@@ -317,6 +321,96 @@ function x64InitNativeHelper(path) {
 function x64Native(rva, result, args) {
     return new NativeFunction(baseAddr.add(parseInt(rva, 16)), result, args);
 }
+
+// WeChat 4.1.15.35 x64 libc++ long std::string layout:
+// capacity|1 at +0, byte length at +8, data pointer at +16.
+function x64WriteLongString(object, offset, value, maxBytes, keepAlive) {
+    var encoded = unescape(encodeURIComponent(String(value)));
+    if (!encoded.length || encoded.length > maxBytes) return false;
+    var bytes = new Uint8Array(encoded.length);
+    for (var i = 0; i < encoded.length; i++) bytes[i] = encoded.charCodeAt(i);
+    var storage = Memory.alloc(bytes.length + 1);
+    storage.writeByteArray(bytes);
+    storage.add(bytes.length).writeU8(0);
+    object.add(offset).writeU64((bytes.length + 1) | 1);
+    object.add(offset + 8).writeU64(bytes.length);
+    object.add(offset + 16).writePointer(storage);
+    // Frida frees Memory.alloc blocks when their JS pointer wrappers are collected.
+    // Keep every backing buffer reachable until native task construction returns.
+    if (keepAlive) keepAlive.push(storage);
+    return true;
+}
+
+function x64ResolveCdnManager() {
+    if (isReadablePointer(x64DownloadManager)) return x64DownloadManager;
+    // GetService can deadlock while WeChat holds its service registry during login.
+    // A finalized real message is the same stable-login gate used by the arm64 hook.
+    if (!incomingTrafficSeen) return null;
+    try {
+        var scope = Memory.alloc(24);
+        scope.writeByteArray(new Uint8Array(24));
+        scope.writeU8(14); // short libc++ string length (7 bytes) at +1
+        scope.add(1).writeUtf8String("default");
+        var getService = new NativeFunction(x64CdnGetServiceAddr, "pointer", ["pointer"]);
+        var service = getService(scope);
+        if (!isReadablePointer(service)) return null;
+        var getContext = new NativeFunction(x64CdnManagerGetterAddr, "pointer", ["pointer"]);
+        var context = getContext(service);
+        if (!isReadablePointer(context)) return null;
+        var manager = context.add(0x40).readPointer();
+        if (!isReadablePointer(manager)) return null;
+        x64DownloadManager = manager;
+        return manager;
+    } catch (error) {
+        console.log("[!] x64 CdnManager lookup failed: " + error);
+        return null;
+    }
+}
+
+function x64AttachMediaDownload() {
+    Interceptor.attach(x64StartDownloadMediaAddr, {
+        onEnter: function (args) {
+            try {
+                if (isReadablePointer(args[0])) x64DownloadManager = args[0];
+            } catch (error) { }
+        }
+    });
+    x64Health.mediaSupported = true;
+}
+
+function x64TriggerDownload(receiver, cdnUrl, aesKey, filePath, fileType) {
+    if (Process.arch !== "x64" || !x64Health.mediaSupported) return "off";
+    var manager = x64ResolveCdnManager();
+    if (!manager) return "fail";
+    if (!receiver || !cdnUrl || !aesKey || !filePath) return "fail";
+    if ([1, 2, 3, 4, 5].indexOf(Number(fileType)) < 0) return "fail";
+
+    var task = Memory.alloc(0x658);
+    task.writeByteArray(new Uint8Array(0x658));
+    var keepAlive = [task];
+    // The x64 task is zero-initialized, unlike the captured arm64 template. Its
+    // four required long strings and media type are populated using x64 offsets.
+    if (!x64WriteLongString(task, 0x40, receiver + "_" + Math.floor(Date.now() / 1000) + "_" +
+            Math.floor(Math.random() * 1001) + "_1", 128, keepAlive) ||
+        !x64WriteLongString(task, 0x58, cdnUrl, 256, keepAlive) ||
+        !x64WriteLongString(task, 0x70, aesKey, 128, keepAlive) ||
+        !x64WriteLongString(task, 0x88, filePath, 256, keepAlive)) return "fail";
+    task.add(0xa0).writeU32(Number(fileType));
+
+    try {
+        var startDownload = new NativeFunction(x64StartDownloadMediaAddr, "int", ["pointer", "pointer"]);
+        var result = startDownload(manager, task);
+        // Read after the native call so all Memory.alloc wrappers stay live for
+        // the complete synchronous copy into WeChat's own download task.
+        if (!keepAlive[0] || keepAlive.length !== 5) return "fail";
+        x64Health.mediaDownloads++;
+        return String(result);
+    } catch (error) {
+        console.log("[!] x64 image download request failed: " + error);
+        return "fail";
+    }
+}
+
 function x64HexBytes(hex) {
     if (typeof hex !== "string" || !hex.length || hex.length > 8 * 1024 * 1024 ||
         hex.length % 2 || !/^[0-9a-f]+$/i.test(hex)) throw new Error("Invalid text protobuf");
@@ -442,8 +536,10 @@ rpc.exports = {
     triggerSendVoiceMessage:unavailable, triggerSendFileMessage:unavailable,
     triggerSendFileUploadMessage:unavailable, triggerUploadImg:unavailable,
     triggerUploadVideo:unavailable, triggerUploadVoice:unavailable,
-    triggerUploadFile:unavailable, triggerUploadAppAttach:unavailable, triggerDownload:unavailable
+    triggerUploadFile:unavailable, triggerUploadAppAttach:unavailable, triggerDownload:x64TriggerDownload
 };
 attachMessageFinalizer();
+x64AttachMediaDownload();
 x64Health.ready = true;
-console.log("[+] x64 Hook ready: WeChat {{.version}} ({{.build}}), textSend=" + x64Health.sendSupported + ", image=" + actualUUID);
+console.log("[+] x64 Hook ready: WeChat {{.version}} ({{.build}}), textSend=" + x64Health.sendSupported +
+    ", mediaDownload=" + x64Health.mediaSupported + ", image=" + actualUUID);

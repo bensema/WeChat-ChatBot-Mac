@@ -14,6 +14,7 @@ Intel 与 AMD 的目标指令集均为 x86_64；本次实际验证硬件是 Inte
 - x64 原生任务向自己的文件传输助手发送 `Intel bridge 自检`，手机确认收到；补齐 completion 后，经 Go HTTP → Frida → 原生 service 发送 `Intel bridge 回调验证`，任务 286 完成，`lastErrorType=0` / `lastErrorCode=0`，微信进程稳定。首次 HTTP 测试发现旧 ARM `buf2resp` 等待导致误报超时，已让 x64 文本任务按原生提交结果返回。
 - 当前 x64 配置标记 `enableSend=true`、`contactDirectory=true`；不复用 arm64 的 R3/媒体/朋友圈地址。通讯录复用 CommonCrypto 导出函数捕获与通用 SQLCipher 页解密逻辑，不依赖 `wechat.dylib` 静态 RVA，因此不需要 Hopper 重新定位微信原生入口。2026-11-15 本机验证实际 `contact.db` 解密成功，返回 2,736 个联系人、23 个群；密钥只在微信进程内存、bridge 内存和现有受限 key cache 流程中处理。
 - x64 通讯录模块为 `hook/contact-directory-x64.js`，由 bridge 在主 x64 Hook 前拼接加载。App/bridge 更新并重启后，连接会立即安装 `CCCrypt` / `CCCryptorCreate` / `CCKeyDerivationPBKDF` 捕获 Hook；首次无缓存时须在 Hook 安装后打开通讯录/聊天，让微信触发 key 使用。未捕获密钥时返回 `key_missing`，不代表函数偏移错误。`x64_contact_directory_unverified` 是旧版 bridge Hook 的占位返回值。
+- 入站图片下载入口已按当前 x64 镜像静态核对并加入 Hook：通过 `GetService("default")` 获取 CdnManager，构造 x64 `0x658` 字节下载参数后调用 `_startDownloadMedia`；bridge 同时等待 CDN 分片或微信写出的完整图片文件。此链路尚未用真实图片完成运行期验证，不能据此标记为真机媒体已验证。
 
 ## Hopper MCP 确认的镜像与地址
 
@@ -51,6 +52,11 @@ Intel 与 AMD 的目标指令集均为 x86_64；本次实际验证硬件是 Inte
 | 文本 service getter | `0x4bed3b0` | root vtable `+0x18`；返回 service 子对象 |
 | 文本 service vtable / 提交 thunk | `0xa733b30` / `0x4bb6620` | vtable `+0x28`，`rdi=service*`、`rsi=Task*` |
 | 文本 Task vtable | `0xa68c4d8` | Req2Buf `+0x10`、Buf2Resp `+0x18`、request `+0x20` |
+| GetService("default") | `0x601ebc8` | x64 下载路径服务定位器 |
+| CdnManager 类型 getter | `0x61b2a4c` | getter 返回的 context `+0x40` 是 CdnManager |
+| `_startDownloadMedia` | `0x62084ce` | `rdi=CdnManager*`、`rsi=0x658 字节下载参数`；返回 `0` 表示已受理 |
+| `CreateC2CImageDownloadTask` | `0x639b866` | `_startDownloadMedia` 对 fileType 2 的分发目标 |
+| `_OnRecvFileData` / `CdnFile::_WriteDecrypt` | `0x63451f8` / `0x621a5b0` | 下载接收与原生分片解密路径 |
 
 计算：`运行地址 = 当前 wechat.dylib 加载基址 + RVA`。
 当前 Message finalizer 地址为 `0x1289444c0`，不是固定基址。首次验证 PID 67935 的基址曾为 `0x127c06000`。
@@ -60,6 +66,8 @@ Message 布局：`type +0x0c`、`from +0x18`、`to +0x30`、`member +0x48`、
 `serverId +0xf8`、`created +0x114`、`content +0x130`、`msgSource +0x160`。
 x64 libc++ 字符串与 arm64 不同：短串长度为首字节右移一位、数据在 `+1`；
 长串标志为首字节 bit 0、长度在 `+8`、数据指针在 `+16`。字符串长度是 UTF-8 字节数。
+下载参数的四个字符串对象位于 `+0x40`、`+0x58`、`+0x70`、`+0x88`，类型在 `+0xa0`；
+这些字段使用 x64 的 `capacity|1 / size / data` 布局，不能复制 arm64 模板中的指针顺序。
 
 仓库原有的 `4_1_15_55_mac.json` 是 **270135 / arm64**。
 其中 `0x597eda0` 在当前 x64 镜像中是另一个函数，不能只改版本字符串后继续使用。

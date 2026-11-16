@@ -10,13 +10,23 @@ struct SessionRow: View {
     var replyProgress: ReplyProgress?
     var onSelect: () -> Void
 
+    @Environment(AppStore.self) private var store
     @State private var isHovering = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: 9) {
-                AvatarView(title: conversation.displayTitle, kind: conversation.kind, size: 36)
+                AvatarView(
+                    title: conversation.displayTitle,
+                    kind: conversation.kind,
+                    size: 36,
+                    imageURL: store.contactDirectorySnapshot?.avatarURL(
+                        for: conversation.id,
+                        kind: conversation.kind
+                    ),
+                    isRoundedSquare: true
+                )
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 5) {
                         Text(conversation.displayTitle)

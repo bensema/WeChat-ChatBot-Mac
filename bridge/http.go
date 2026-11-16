@@ -226,6 +226,7 @@ func sendHandler(w http.ResponseWriter, r *http.Request) {
 type fetchImageRequest struct {
 	MessageID  string `json:"message_id"`
 	RawMessage string `json:"raw_message"`
+	Variant    string `json:"variant"`
 }
 
 // fetchImageHandler 处理 App 的入站图片获取请求（docs/bridge.md §3.4）：
@@ -261,12 +262,20 @@ func fetchImageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.MessageID = strings.TrimSpace(req.MessageID)
+	req.Variant = strings.TrimSpace(req.Variant)
 	if req.MessageID == "" {
 		writeFetchImageResponse(w, http.StatusBadRequest, map[string]any{
 			"status": "failed",
 			"error":  "参数缺失",
 		})
 		Error("图片获取请求参数缺失")
+		return
+	}
+	if req.Variant != "" && req.Variant != "hd" && req.Variant != "thumb" && req.Variant != "full" {
+		writeFetchImageResponse(w, http.StatusBadRequest, map[string]any{
+			"status": "failed",
+			"error":  "不支持的图片规格",
+		})
 		return
 	}
 	if _, ok := pendingImageJobs.Load(req.MessageID); !ok && req.RawMessage != "" {
@@ -277,10 +286,22 @@ func fetchImageHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	path, err := fetchIncomingImage(req.MessageID)
+	var path string
+	var err error
+	switch req.Variant {
+	case "hd":
+		path, err = fetchIncomingImageHD(req.MessageID)
+	case "thumb":
+		path, err = fetchIncomingImageThumb(req.MessageID)
+	case "full":
+		path, err = fetchIncomingImageFull(req.MessageID)
+	default:
+		path, err = fetchIncomingImage(req.MessageID)
+	}
 	if err != nil {
 		status := http.StatusBadGateway
-		if errors.Is(err, errImageJobNotFound) {
+		if errors.Is(err, errImageJobNotFound) || errors.Is(err, errImageHDUnavailable) ||
+			errors.Is(err, errImageVariantUnavailable) {
 			status = http.StatusBadRequest
 		}
 		writeFetchImageResponse(w, status, map[string]any{

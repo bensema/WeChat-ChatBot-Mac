@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -576,6 +577,67 @@ func TestFetchIncomingImageFallsBackToThumb(t *testing.T) {
 	}
 	if string(content) != string(plain) {
 		t.Fatal("thumb 回退落盘内容与明文不一致")
+	}
+}
+
+func TestFetchIncomingImageThumbSkipsMidCandidate(t *testing.T) {
+	setupMediaTestEnv(t)
+	registerIncomingImage(testImagePayload("400011"))
+	plain := syntheticImageJPEG(48)
+	var tried []string
+	triggerIncomingImageDownload = func(job *incomingImageJob, candidate imageCandidate, tempPath string) (string, error) {
+		tried = append(tried, candidate.Variant)
+		if candidate.Variant != "thumb" {
+			t.Fatalf("缩略图请求尝试了 %s 候选", candidate.Variant)
+		}
+		userID2FileMsgMap.Store(candidate.CDNKey, &DownloadRequest{
+			CDNURL: candidate.CDNKey, Media: encryptImageECB(t, plain, candidate.AESKey),
+			LastAppendTime: time.Now().Add(-2 * time.Second).UnixMilli(),
+		})
+		return "1", nil
+	}
+
+	path, err := fetchIncomingImageThumb("400011")
+	if err != nil {
+		t.Fatalf("获取缩略图失败: %v", err)
+	}
+	if !reflect.DeepEqual(tried, []string{"thumb"}) {
+		t.Fatalf("缩略图请求候选顺序 = %#v", tried)
+	}
+	if want := testImageMD5 + "-thumb.jpg"; filepath.Base(path) != want {
+		t.Fatalf("缩略图文件名 = %q, want %q", filepath.Base(path), want)
+	}
+}
+
+func TestFetchIncomingImageFullFallsBackFromHDToMid(t *testing.T) {
+	setupMediaTestEnv(t)
+	raw := `<msg><img encryver="1" md5="` + testImageMD5 + `" cdnhdurl="hd-key" hdlength="48" aeskey="` + testImageAESKeyHex + `" cdnmidimgurl="` + testMidCDNKey + `" length="48" cdnmidheight="120" cdnthumbaeskey="` + testImageThumbKeyHex + `" cdnthumburl="` + testThumbCDNKey + `" cdnthumblength="48"/></msg>`
+	registerIncomingImage(map[string]interface{}{"msg_type": 3, "message_id": "400012", "raw_message": raw})
+	plain := syntheticImageJPEG(48)
+	var tried []string
+	triggerIncomingImageDownload = func(job *incomingImageJob, candidate imageCandidate, tempPath string) (string, error) {
+		tried = append(tried, candidate.Variant)
+		key := candidate.AESKey
+		if candidate.Variant == "hd" {
+			// Simulate a corrupt/unusable HD response so the valid mid image is tried next.
+			key = testWrongAESKeyHex
+		}
+		userID2FileMsgMap.Store(candidate.CDNKey, &DownloadRequest{
+			CDNURL: candidate.CDNKey, Media: encryptImageECB(t, plain, key),
+			LastAppendTime: time.Now().Add(-2 * time.Second).UnixMilli(),
+		})
+		return "1", nil
+	}
+
+	path, err := fetchIncomingImageFull("400012")
+	if err != nil {
+		t.Fatalf("高清失败后回退大图失败: %v", err)
+	}
+	if !reflect.DeepEqual(tried, []string{"hd", "mid"}) {
+		t.Fatalf("原图候选顺序 = %#v", tried)
+	}
+	if want := testImageMD5 + ".jpg"; filepath.Base(path) != want {
+		t.Fatalf("回退大图文件名 = %q, want %q", filepath.Base(path), want)
 	}
 }
 

@@ -5224,7 +5224,25 @@ function contactQueryDirectory(dbPath) {
     var db = null;
     try {
         db = SqliteDatabase.open(dbPath);
-        var stmt = db.prepare("SELECT username, nick_name, remark, alias, delete_flag FROM contact;");
+        // 微信不同版本的 contact 表对头像列命名略有差异。先读表结构，再只选择实际存在的列，
+        // 这样旧版本继续同步名称，新版本额外同步头像地址。
+        var avatarColumnPriority = [
+            "big_head_url", "big_head_img_url", "head_img_url", "headimgurl",
+            "small_head_url", "small_head_img_url", "smallheadimgurl"
+        ];
+        var availableColumns = {};
+        var schemaStmt = db.prepare("PRAGMA table_info(contact);");
+        var schemaRow = schemaStmt.step();
+        while (schemaRow) {
+            if (schemaRow[1]) availableColumns[String(schemaRow[1]).toLowerCase()] = true;
+            schemaRow = schemaStmt.step();
+        }
+        var avatarColumns = avatarColumnPriority.filter(function (name) {
+            return !!availableColumns[name];
+        });
+        var selectedColumns = ["username", "nick_name", "remark", "alias", "delete_flag"]
+            .concat(avatarColumns);
+        var stmt = db.prepare("SELECT " + selectedColumns.join(", ") + " FROM contact;");
         var row = stmt.step();
         while (row && count < CONTACT_MAX_ENTRIES) {
             var username = row[0] ? String(row[0]) : "";
@@ -5239,6 +5257,13 @@ function contactQueryDirectory(dbPath) {
                     remark: remark,
                     alias: alias
                 };
+                for (var avatarIndex = 0; avatarIndex < avatarColumns.length; avatarIndex++) {
+                    var candidate = row[5 + avatarIndex] ? String(row[5 + avatarIndex]).trim() : "";
+                    if (/^https?:\/\//i.test(candidate)) {
+                        entry.avatar_url = candidate;
+                        break;
+                    }
+                }
                 if (username.indexOf("@chatroom") >= 0) groups[username] = entry;
                 else users[username] = entry;
                 count++;
