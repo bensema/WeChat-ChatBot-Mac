@@ -43,7 +43,12 @@ memory, voice and image understanding.
 
 ### 兼容性
 
-源码新增 macOS 15 / Intel x86_64 实验适配，针对微信 4.1.15.35（270115）；已验证 App 启动、真实消息接收及原生文本发送。见 [Intel 适配记录](docs/intel-4.1.15.md)。已发布 Apple Silicon 包的要求保持不变。
+项目同时提供 Apple Silicon（arm64）发行包路径和 Intel（x86_64）源码适配路径：
+
+- **Apple Silicon（arm64）**：已发布的 zip 包面向 Apple Silicon，要求 macOS 26+；支持下表中的微信版本。
+- **Intel（x86_64）**：目前仅支持从源码构建，要求 macOS 15+，已针对微信 4.1.15.35（270115）验证 App 启动、真实消息接收、通讯录读取和原生文本发送。构建脚本会根据 `uname -m` 自动选择 x86_64 的 Go / Frida 依赖和 Hook。当前没有单独的 Intel 下载包。
+
+Intel 适配仍属于实验支持：语音发送未启用，Qwen3-TTS / MLX 本地语音模型不支持 Intel；图片下载链路已接入但尚未完成真机运行验证。详细边界、复现命令和已验证结果见 [Intel 适配记录](docs/intel-4.1.15.md)。
 
 | 微信版本 | 支持 |
 | --- | --- |
@@ -55,9 +60,13 @@ memory, voice and image understanding.
 
 语音发送与部分媒体能力在部分版本上尚未复测，差异见 [`docs/install.md`](docs/install.md)。
 
-环境：Apple Silicon、macOS 26+；微信须为上述版本之一，位于 `/Applications/WeChat.app` 且当前用户可写
+Apple Silicon 发行包环境：Apple Silicon、macOS 26+；微信须为上述版本之一，位于 `/Applications/WeChat.app` 且当前用户可写
 （App Store 版路径 / 签名不同，可能不适用）。安装 Hook 需 Xcode Command Line Tools
-（`xcode-select --install`；完整 Xcode 亦可，无需开发者账号）；从源码构建另需 Xcode 27（已验证 27.1）。
+（`xcode-select --install`；完整 Xcode 亦可，无需开发者账号）；Apple Silicon 从源码构建另需
+Xcode 27（已验证 27.1），Intel 按 macOS 15 的工具链构建。
+
+Intel 源码构建环境：Intel x86_64、macOS 15+、微信 4.1.15.35（270115）和可写的
+`/Applications/WeChat.app`。请按“从源码构建”步骤执行；脚本会生成与当前主机架构匹配的 App、Go bridge 和 Frida Gadget。
 
 ### 架构
 
@@ -79,7 +88,7 @@ AI 走 OpenAI 兼容接口，消息、记忆与日志只存本机（调用 AI �
 
 - **普通用户**：下载
   [`WeChat-AI-4.1.0.zip`](https://github.com/Gusion1017/WeChat-ChatBot-Mac/releases/download/v4.1.0/WeChat-AI-4.1.0.zip)
-  （约 70 MB / 66 MiB，[SHA256](https://github.com/Gusion1017/WeChat-ChatBot-Mac/releases/download/v4.1.0/WeChat-AI-4.1.0.zip.sha256)），
+  （Apple Silicon arm64，约 70 MB / 66 MiB，[SHA256](https://github.com/Gusion1017/WeChat-ChatBot-Mac/releases/download/v4.1.0/WeChat-AI-4.1.0.zip.sha256)），
   历史发布说明见 [`docs/releases/`](docs/releases/)。
   1. 解压下载的 zip 得到 `WeChat AI.app`，拖入 `~/Applications`（当前用户，无需管理员）或
      `/Applications`（所有用户）。App 未公证，首次启动会被 Gatekeeper 拦截（macOS 15 起无法再
@@ -99,7 +108,11 @@ AI 走 OpenAI 兼容接口，消息、记忆与日志只存本机（调用 AI �
   3. 首次启用或微信重启后，需在本机微信手动发一条消息（语音回复再发一条语音；朋友圈已开启再打开一次朋友圈）建立发送通道，否则回复会排队。App 会弹统一的「捕获发送句柄」弹窗提示，条目按已开启功能显示。
      完整步骤与还原方式见 [`docs/install.md`](docs/install.md)。
 
-- **从源码构建**（需 Xcode 27）：
+- **从源码构建**（Apple Silicon 需 Xcode 27；Intel 使用 macOS 15 工具链）：
+
+  Apple Silicon 和 Intel 均可从源码构建；`scripts/build_bridge.sh`、`scripts/build_app.sh`
+  会按当前主机架构生成对应产物。Intel 用户请使用微信 4.1.15.35（270115），并参考
+  [Intel 适配记录](docs/intel-4.1.15.md)。
 
 ```bash
 git clone https://github.com/Gusion1017/WeChat-ChatBot-Mac.git && cd WeChat-ChatBot-Mac
@@ -191,7 +204,12 @@ OneBot 桥接为上游项目的 GPL-3.0 衍生，改动清单见 [`bridge/NOTICE
 
 ### Compatibility
 
-Source builds now include an experimental macOS 15 / Intel x86_64 path for WeChat 4.1.15.35 (270115). App launch, live receive and native text sending are verified. See [the Intel adaptation record](docs/intel-4.1.15.md). Published Apple Silicon releases retain their existing requirements.
+The project supports two distribution paths:
+
+- **Apple Silicon (arm64)**: published zip releases target Apple Silicon and require macOS 26+; the supported WeChat versions are listed below.
+- **Intel (x86_64)**: source-build support only, on macOS 15+. App launch, live receive, contact-directory reads and native text sending are verified with WeChat 4.1.15.35 (270115). The build scripts select x86_64 Go / Frida dependencies and Hook files from `uname -m`. There is currently no separate Intel download package.
+
+Intel support remains experimental: voice sending is disabled, and the Qwen3-TTS / MLX local voice model does not support Intel. The image-download path is wired in but has not completed real-device runtime verification. See [the Intel adaptation record](docs/intel-4.1.15.md) for tested results, limits and reproduction commands.
 
 | WeChat version | Support |
 | --- | --- |
@@ -204,11 +222,15 @@ Source builds now include an experimental macOS 15 / Intel x86_64 path for WeCha
 Voice sending and some media features have not been retested on every version; see
 [`docs/install.md`](docs/install.md) for details.
 
-Requirements: Apple Silicon, macOS 26+; WeChat must be one of the versions above, installed at
+Apple Silicon release requirements: Apple Silicon, macOS 26+; WeChat must be one of the versions above, installed at
 `/Applications/WeChat.app` and writable by the current user (App Store builds use a different
 path/signature and may not work). Hook installation needs Xcode Command Line Tools
-(`xcode-select --install`; full Xcode also works, no developer account needed); building from
-source needs Xcode 27 (verified on 27.1).
+(`xcode-select --install`; full Xcode also works, no developer account needed). Apple Silicon
+source builds need Xcode 27 (verified on 27.1); Intel builds use the macOS 15 toolchain.
+
+Intel source-build requirements: Intel x86_64, macOS 15+, WeChat 4.1.15.35 (270115), and a
+writable `/Applications/WeChat.app`. Follow the source-build steps below; the scripts produce an
+App, Go bridge and Frida Gadget for the current host architecture.
 
 ### Architecture
 
@@ -233,7 +255,7 @@ install and restore), `devtools/` (local mocks), `assets/` (icon sources), `LICE
 
 - **Regular users**: download
   [`WeChat-AI-4.1.0.zip`](https://github.com/Gusion1017/WeChat-ChatBot-Mac/releases/download/v4.1.0/WeChat-AI-4.1.0.zip)
-  (~70 MB (66 MiB), [SHA256](https://github.com/Gusion1017/WeChat-ChatBot-Mac/releases/download/v4.1.0/WeChat-AI-4.1.0.zip.sha256));
+  (Apple Silicon arm64, ~70 MB / 66 MiB, [SHA256](https://github.com/Gusion1017/WeChat-ChatBot-Mac/releases/download/v4.1.0/WeChat-AI-4.1.0.zip.sha256));
   older release notes are in [`docs/releases/`](docs/releases/).
   1. Unzip the downloaded zip to get `WeChat AI.app`, then drag it to `~/Applications` (current
      user, no admin) or `/Applications` (all users). The app is not notarized, so Gatekeeper
@@ -257,7 +279,11 @@ install and restore), `devtools/` (local mocks), `assets/` (icon sources), `LICE
      otherwise replies queue. The app shows a unified "capture send handles" sheet whose items follow
      the enabled features. Full steps and restore instructions are in [`docs/install.md`](docs/install.md).
 
-- **Build from source** (Xcode 27 required):
+- **Build from source** (Xcode 27 for Apple Silicon; macOS 15 toolchain for Intel):
+
+  Both Apple Silicon and Intel hosts are supported for source builds. `scripts/build_bridge.sh`
+  and `scripts/build_app.sh` select the current host architecture automatically. Intel users
+  should use WeChat 4.1.15.35 (270115) and follow [the Intel adaptation record](docs/intel-4.1.15.md).
 
 ```bash
 git clone https://github.com/Gusion1017/WeChat-ChatBot-Mac.git && cd WeChat-ChatBot-Mac
